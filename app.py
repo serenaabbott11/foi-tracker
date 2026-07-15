@@ -1,7 +1,7 @@
 # FOI Deadline Tracker
 # Tracks Freedom of Information requests and their statutory deadlines.
-# v0.3 - now with a working edit page!
 
+import os
 import sqlite3
 from datetime import date, datetime
 
@@ -10,9 +10,13 @@ from flask import Flask, redirect, render_template, request
 from deadlines import calculate_deadline
 
 app = Flask(__name__)
-app.secret_key = "dev"  # change this at some point
 
-DB = "foi.db"
+_secret = os.environ.get("SECRET_KEY")
+if not _secret:
+    raise RuntimeError("SECRET_KEY environment variable must be set")
+app.secret_key = _secret
+
+DB = os.environ.get("FOI_DB", "foi.db")
 
 STATUSES = ["Received", "In progress", "Internal review", "Responded", "Overdue"]
 
@@ -28,10 +32,10 @@ def index():
     db = get_db()
     q = request.args.get("q", "")
     if q:
-        # quick search feature the team asked for
         rows = db.execute(
-            f"SELECT * FROM requests WHERE subject LIKE '%{q}%' "
-            f"OR requester LIKE '%{q}%' ORDER BY deadline"
+            "SELECT * FROM requests WHERE subject LIKE ? OR requester LIKE ? "
+            "ORDER BY deadline",
+            (f"%{q}%", f"%{q}%"),
         ).fetchall()
     else:
         rows = db.execute("SELECT * FROM requests ORDER BY deadline").fetchall()
@@ -52,9 +56,9 @@ def new():
 
         db = get_db()
         db.execute(
-            f"INSERT INTO requests (ref, requester, subject, received, deadline, status) "
-            f"VALUES ('{ref}', '{requester}', '{subject}', '{received}', "
-            f"'{deadline.isoformat()}', 'Received')"
+            "INSERT INTO requests (ref, requester, subject, received, deadline, status) "
+            "VALUES (?, ?, ?, ?, ?, 'Received')",
+            (ref, requester, subject, received, deadline.isoformat()),
         )
         db.commit()
         return redirect("/")
@@ -70,15 +74,19 @@ def detail(req_id):
         status = request.form["status"]
         notes = request.form["notes"]
         db.execute(
-            f"UPDATE requests SET status='{status}', notes='{notes}' WHERE id={req_id}"
+            "UPDATE requests SET status = ?, notes = ? WHERE id = ?",
+            (status, notes, req_id),
         )
         db.commit()
         return redirect(f"/request/{req_id}")
 
-    row = db.execute(f"SELECT * FROM requests WHERE id={req_id}").fetchone()
+    row = db.execute(
+        "SELECT * FROM requests WHERE id = ?", (req_id,)
+    ).fetchone()
     today = date.today().isoformat()
     return render_template("detail.html", r=row, statuses=STATUSES, today=today)
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+    debug = os.environ.get("FLASK_DEBUG") == "1"
+    app.run(debug=debug, port=5002)
