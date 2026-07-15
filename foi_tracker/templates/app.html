@@ -33,7 +33,10 @@
   </header>
 
   <div class="toolbar">
-    <input id="search" type="text" placeholder="Search any field — ref, requester, subject, status, notes, dates…" autocomplete="off">
+    <input id="search" name="foi-search" type="text" placeholder="Search requests" list="search-suggestions" autocomplete="on">
+    <datalist id="search-suggestions">
+      {% for s in statuses %}<option value="{{ s }}">{% endfor %}
+    </datalist>
     <span class="count" id="count"></span>
   </div>
 
