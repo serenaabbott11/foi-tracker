@@ -21,7 +21,16 @@ def test_august_bank_holiday_2026_foi_0188():
 
 
 def test_maundy_thursday_2026_is_a_working_day():
-    # Maundy Thursday (Thu 2 Apr 2026) is not a bank holiday in
-    # England & Wales, so it counts as a normal working day. A request
-    # received Thu 5 Mar 2026 has its 20th working day land on it.
-    assert calculate_deadline(date(2026, 3, 5)) == date(2026, 4, 2)
+    # Maundy Thursday (Thu 2 Apr 2026) is not a bank holiday in any UK
+    # nation, so it counts as a working day. A request received
+    # Wed 4 Mar 2026 has its 20th working day land on it — the count
+    # correctly skips Tue 17 Mar (St Patrick's Day, NI) along the way.
+    assert calculate_deadline(date(2026, 3, 4)) == date(2026, 4, 2)
+
+
+def test_scotland_2nd_january_2026_extends_deadline():
+    # FOI Act s.10(6) treats "any part of the UK" bank holidays as
+    # non-working days. 2nd January 2026 (Fri) is a Scotland-only bank
+    # holiday. Received Tue 30 Dec 2025 → deadline Thu 29 Jan 2026;
+    # if 2 Jan were counted (old E&W-only logic) it would be Wed 28 Jan.
+    assert calculate_deadline(date(2025, 12, 30)) == date(2026, 1, 29)

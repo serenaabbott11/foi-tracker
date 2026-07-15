@@ -22,7 +22,11 @@ it before importing `foi_tracker.app` inside a test.
 - `test_deadlines.py` — `calculate_deadline` returns the right date across Easter,
   Christmas, and the Summer bank holiday. Also asserts Maundy Thursday counts as
   a working day (it isn't a UK bank holiday, and treating it as one silently
-  slips every Easter-period deadline by a day).
+  slips every Easter-period deadline by a day). The Scotland 2nd January case
+  guards the FOI Act s.10(6) requirement that a bank holiday in *any* of the
+  four UK nations is a non-working day — losing that would under-count deadlines
+  for requests spanning Scotland- or NI-specific holidays (2 Jan, St Patrick's,
+  Battle of the Boyne, St Andrew's).
 
 ## Adding tests
 
