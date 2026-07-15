@@ -6,39 +6,34 @@ calculates the statutory 20-working-day response deadline.
 ## Layout
 
 ```
-foi-tracker/
-├── foi_tracker/      Application package (Flask app, routes, deadline logic)
-│   └── templates/    HTML templates
-├── tests/            Pytest suite
-├── scripts/          Utility scripts (seed the DB)
-├── docs/             Team plan, AI change log, hackathon brief
-├── run.py            Entry point
-└── requirements.txt
+foi_tracker/    Flask app, routes, deadline logic, templates
+tests/          Pytest suite
+scripts/        seed.py — populates foi.db with sample data
+docs/           AI_LOG, TEAM-PLAN, hackathon brief
+run.py          Entry point
 ```
 
-## Running it
+## Setup
 
-```
+```bash
 pip install -r requirements.txt
 export SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
-python -m scripts.seed        # creates foi.db with sample data (wipes existing!)
-python run.py                 # starts the app on http://localhost:5002
+python -m scripts.seed
+python run.py
 ```
 
-For local dev with auto-reload:
+App: <http://localhost:5002>
 
-```
-FLASK_DEBUG=1 python run.py
-```
+For dev with auto-reload: `FLASK_DEBUG=1 python run.py`
 
-## Running the tests
+## Tests
 
-```
+```bash
 python -m pytest
 ```
 
 ## Notes
 
-- Deadlines: 20 working days from receipt. Bank holidays are **not yet** excluded (see [`docs/TEAM-PLAN.txt`](docs/TEAM-PLAN.txt)).
-- `SECRET_KEY` is required; the app refuses to start without one.
-- Change log lives in [`docs/AI_LOG.md`](docs/AI_LOG.md).
+- `SECRET_KEY` is **required** — the app refuses to start without it.
+- Deadlines currently exclude weekends only; bank holidays are being added (see [`docs/TEAM-PLAN.txt`](docs/TEAM-PLAN.txt)).
+- Changes are logged in [`docs/AI_LOG.md`](docs/AI_LOG.md).
