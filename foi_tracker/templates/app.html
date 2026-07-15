@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <base href="./">
+  <title>FOI Deadline Tracker</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #0b0c0c; }
+    h1 { border-bottom: 4px solid #1d70b8; padding-bottom: .3rem; margin: 0; }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #b1b4b6; padding: .5rem .6rem; text-align: left; }
+    th { background: #f3f2f1; }
+    tr[data-id]:hover { background: #f6faff; cursor: pointer; }
+    .overdue { background: #fbeaea; }
+    .status { display: inline-block; background: #f3f2f1; border: 1px solid #b1b4b6; padding: 1px 8px; font-size: .85rem; }
+    label { display: block; margin: .8rem 0 .2rem; font-weight: bold; }
+    input, select, textarea { padding: .5rem; border: 2px solid #0b0c0c; font-size: 1rem; width: 100%; max-width: 420px; box-sizing: border-box; }
+    button { background: #00703c; color: #fff; border: 0; padding: .6rem 1.2rem; font-size: 1rem; cursor: pointer; margin-right: .5rem; }
+    button.secondary { background: #f3f2f1; color: #0b0c0c; border: 1px solid #b1b4b6; }
+    .panel { border: 2px solid #1d70b8; padding: 1rem 1.5rem; margin-top: 1.5rem; background: #f9fbfd; }
+    .panel h2 { margin-top: .2rem; }
+    .hidden { display: none; }
+    .toolbar { margin-top: 1rem; display: flex; gap: 1rem; align-items: center; }
+    .toolbar input[type=text] { max-width: 320px; margin: 0; }
+    .count { color: #505a5f; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FOI Deadline Tracker</h1>
+    <button id="new-btn">+ New request</button>
+  </header>
+
+  <div class="toolbar">
+    <input id="search" type="text" placeholder="Search subject or requester…" autocomplete="off">
+    <span class="count" id="count"></span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Ref</th><th>Subject</th><th>Requester</th>
+        <th>Received</th><th>Deadline</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <div id="new-panel" class="panel hidden">
+    <h2>New request</h2>
+    <label>Reference <input id="n-ref" type="text"></label>
+    <label>Requester <input id="n-requester" type="text"></label>
+    <label>Subject <input id="n-subject" type="text"></label>
+    <label>Received <input id="n-received" type="date" value="{{ today }}"></label>
+    <div style="margin-top: 1rem;">
+      <button id="new-save">Save</button>
+      <button class="secondary" onclick="hidePanels()">Cancel</button>
+    </div>
+  </div>
+
+  <div id="detail-panel" class="panel hidden">
+    <h2>Request <span id="d-ref"></span></h2>
+    <p>
+      <strong>Requester:</strong> <span id="d-requester"></span><br>
+      <strong>Subject:</strong> <span id="d-subject"></span><br>
+      <strong>Received:</strong> <span id="d-received"></span><br>
+      <strong>Deadline:</strong> <span id="d-deadline"></span>
+    </p>
+    <label>Status
+      <select id="d-status">
+        {% for s in statuses %}<option>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Notes <textarea id="d-notes" rows="4"></textarea></label>
+    <div style="margin-top: 1rem;">
+      <button id="detail-save">Save</button>
+      <button class="secondary" onclick="hidePanels()">Cancel</button>
+    </div>
+  </div>
+
+  <script>
+    const TODAY = "{{ today }}";
+    const $ = (id) => document.getElementById(id);
+
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+
+    function hidePanels() {
+      document.querySelectorAll(".panel").forEach(p => p.classList.add("hidden"));
+    }
+
+    async function loadList(q = "") {
+      const url = q ? `api/requests?q=${encodeURIComponent(q)}` : "api/requests";
+      const rows = await fetch(url).then(r => r.json());
+      const tbody = $("rows");
+      tbody.innerHTML = "";
+      for (const r of rows) {
+        const overdue = r.deadline < TODAY && r.status !== "Responded";
+        const tr = document.createElement("tr");
+        tr.dataset.id = r.id;
+        tr.className = overdue ? "overdue" : "";
+        tr.innerHTML = `
+          <td>${esc(r.ref)}</td>
+          <td>${esc(r.subject)}</td>
+          <td>${esc(r.requester)}</td>
+          <td>${esc(r.received)}</td>
+          <td>${esc(r.deadline)}</td>
+          <td><span class="status">${esc(r.status)}</span></td>
+        `;
+        tr.addEventListener("click", () => showDetail(r.id));
+        tbody.appendChild(tr);
+      }
+      $("count").textContent = `${rows.length} request${rows.length === 1 ? "" : "s"}`;
+    }
+
+    async function showDetail(id) {
+      const r = await fetch(`api/requests/${id}`).then(r => r.json());
+      $("d-ref").textContent = r.ref;
+      $("d-requester").textContent = r.requester;
+      $("d-subject").textContent = r.subject;
+      $("d-received").textContent = r.received;
+      $("d-deadline").textContent = r.deadline;
+      $("d-status").value = r.status;
+      $("d-notes").value = r.notes || "";
+      $("detail-save").onclick = async () => {
+        await fetch(`api/requests/${id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: $("d-status").value,
+            notes: $("d-notes").value,
+          }),
+        });
+        hidePanels();
+        loadList($("search").value);
+      };
+      hidePanels();
+      $("detail-panel").classList.remove("hidden");
+    }
+
+    $("new-btn").addEventListener("click", () => {
+      $("n-ref").value = "";
+      $("n-requester").value = "";
+      $("n-subject").value = "";
+      $("n-received").value = TODAY;
+      hidePanels();
+      $("new-panel").classList.remove("hidden");
+    });
+
+    $("new-save").addEventListener("click", async () => {
+      const body = {
+        ref: $("n-ref").value,
+        requester: $("n-requester").value,
+        subject: $("n-subject").value,
+        received: $("n-received").value,
+      };
+      if (!body.ref || !body.requester || !body.subject || !body.received) {
+        alert("All fields are required.");
+        return;
+      }
+      const res = await fetch("api/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { alert("Save failed"); return; }
+      hidePanels();
+      loadList($("search").value);
+    });
+
+    let searchTimer;
+    $("search").addEventListener("input", (e) => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => loadList(e.target.value), 150);
+    });
+
+    loadList();
+  </script>
+</body>
+</html>

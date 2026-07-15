@@ -3,27 +3,39 @@
 Tracks Freedom of Information requests for the DfT central FOI team and
 calculates the statutory 20-working-day response deadline.
 
-Replaced the old spreadsheet in March. The team likes it. Two other
-directorates have asked for accounts, and someone mentioned the ICO audit
-happening in the autumn.
+Single-page app: one HTML shell served at `/`, all data over `/api/requests`.
 
-**Status:** in daily use by 6 people. Runs on Gary's old desktop under
-his desk. If it's down, ask Gary to turn his machine back on.
-
-## Running it
+## Layout
 
 ```
+foi_tracker/    Flask app, routes, deadline logic, templates
+tests/          Pytest suite
+scripts/        seed.py — populates foi.db with sample data
+docs/           AI_LOG, TEAM-PLAN, hackathon brief
+run.py          Entry point
+```
+
+## Setup
+
+```bash
 pip install -r requirements.txt
-python seed.py       # creates foi.db with sample data (wipes existing data!)
-python app.py
+export SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
+python -m scripts.seed
+python run.py
 ```
 
-Then open http://localhost:5002
+App: <http://localhost:5002>
+
+For dev with auto-reload: `FLASK_DEBUG=1 python run.py`
+
+## Tests
+
+```bash
+python -m pytest
+```
 
 ## Notes
 
-- Deadlines are 20 working days from receipt (weekends excluded).
-- The search box was added quickly for the team — it matches subject
-  or requester name.
-- Everyone shares the same screen, no logins. It's internal so fine.
-- Backups: Gary copies foi.db to a USB stick on Fridays, usually.
+- `SECRET_KEY` is **required** — the app refuses to start without it.
+- Deadlines currently exclude weekends only; bank holidays are being added (see [`docs/TEAM-PLAN.txt`](docs/TEAM-PLAN.txt)).
+- Changes are logged in [`docs/AI_LOG.md`](docs/AI_LOG.md).
