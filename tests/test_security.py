@@ -7,6 +7,12 @@ import tempfile
 import pytest
 
 
+def _reload_app():
+    for mod in list(sys.modules):
+        if mod == "foi_tracker" or mod.startswith("foi_tracker."):
+            sys.modules.pop(mod, None)
+
+
 @pytest.fixture
 def client(monkeypatch):
     fd, path = tempfile.mkstemp(suffix=".db")
@@ -41,50 +47,54 @@ def client(monkeypatch):
     os.remove(path)
 
 
-def _reload_app():
-    for mod in list(sys.modules):
-        if mod == "foi_tracker" or mod.startswith("foi_tracker."):
-            sys.modules.pop(mod, None)
-
-
 def test_search_blocks_sql_injection(client):
     """Classic ' OR 1=1-- attack must not dump the table."""
-    response = client.get("/?q=' OR 1=1--")
+    response = client.get("/api/requests?q=' OR 1=1--")
     assert response.status_code == 200
-    assert b"FOI-TEST-001" not in response.data
+    assert response.get_json() == []
 
 
 def test_search_returns_matching_row(client):
-    response = client.get("/?q=Bridge")
+    response = client.get("/api/requests?q=Bridge")
     assert response.status_code == 200
-    assert b"FOI-TEST-001" in response.data
+    data = response.get_json()
+    assert any(r["ref"] == "FOI-TEST-001" for r in data)
 
 
 def test_new_request_handles_quotes_safely(client):
     response = client.post(
-        "/new",
-        data={
+        "/api/requests",
+        json={
             "ref": "FOI-2026-9999",
             "requester": "T. O'Brien",
             "subject": "Data on 'quoted' subjects",
             "received": "2026-01-05",
         },
     )
-    assert response.status_code == 302
+    assert response.status_code == 201
 
-    listing = client.get("/")
-    assert b"FOI-2026-9999" in listing.data
+    listing = client.get("/api/requests").get_json()
+    assert any(r["ref"] == "FOI-2026-9999" for r in listing)
 
 
 def test_update_request_handles_quotes_safely(client):
     response = client.post(
-        "/request/1",
-        data={"status": "In progress", "notes": "Note with 'apostrophe'"},
+        "/api/requests/1",
+        json={"status": "In progress", "notes": "Note with 'apostrophe'"},
     )
-    assert response.status_code == 302
+    assert response.status_code == 200
 
-    detail = client.get("/request/1")
-    assert b"In progress" in detail.data
+    detail = client.get("/api/requests/1").get_json()
+    assert detail["status"] == "In progress"
+    assert detail["notes"] == "Note with 'apostrophe'"
+
+
+def test_index_serves_single_page_shell(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert b"FOI Deadline Tracker" in response.data
+    # SPA shell must include the JS bootstrap
+    assert b"loadList()" in response.data
 
 
 def test_app_refuses_to_start_without_secret_key(monkeypatch):

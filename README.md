@@ -3,6 +3,8 @@
 Tracks Freedom of Information requests for the DfT central FOI team and
 calculates the statutory 20-working-day response deadline.
 
+Single-page app: one HTML shell served at `/`, all data over `/api/requests`.
+
 ## Layout
 
 ```

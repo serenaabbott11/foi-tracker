@@ -1,11 +1,10 @@
-# FOI Deadline Tracker
-# Tracks Freedom of Information requests and their statutory deadlines.
+# FOI Deadline Tracker — single-page app with a JSON API.
 
 import os
 import sqlite3
 from datetime import date, datetime
 
-from flask import Flask, redirect, render_template, request
+from flask import Flask, jsonify, render_template, request
 
 from foi_tracker.deadlines import calculate_deadline
 
@@ -27,10 +26,19 @@ def get_db():
     return conn
 
 
-@app.route("/")
+@app.get("/")
 def index():
-    db = get_db()
+    return render_template(
+        "app.html",
+        statuses=STATUSES,
+        today=date.today().isoformat(),
+    )
+
+
+@app.get("/api/requests")
+def list_requests():
     q = request.args.get("q", "")
+    db = get_db()
     if q:
         rows = db.execute(
             "SELECT * FROM requests WHERE subject LIKE ? OR requester LIKE ? "
@@ -39,51 +47,49 @@ def index():
         ).fetchall()
     else:
         rows = db.execute("SELECT * FROM requests ORDER BY deadline").fetchall()
-
-    today = date.today().isoformat()
-    return render_template("index.html", rows=rows, q=q, today=today)
+    return jsonify([dict(r) for r in rows])
 
 
-@app.route("/new", methods=["GET", "POST"])
-def new():
-    if request.method == "POST":
-        ref = request.form["ref"]
-        requester = request.form["requester"]
-        subject = request.form["subject"]
-        received = request.form["received"]
+@app.post("/api/requests")
+def create_request():
+    data = request.get_json(silent=True) or request.form
+    ref = data["ref"]
+    requester = data["requester"]
+    subject = data["subject"]
+    received = data["received"]
 
-        deadline = calculate_deadline(datetime.strptime(received, "%Y-%m-%d").date())
+    deadline = calculate_deadline(datetime.strptime(received, "%Y-%m-%d").date())
 
-        db = get_db()
-        db.execute(
-            "INSERT INTO requests (ref, requester, subject, received, deadline, status) "
-            "VALUES (?, ?, ?, ?, ?, 'Received')",
-            (ref, requester, subject, received, deadline.isoformat()),
-        )
-        db.commit()
-        return redirect("/")
-
-    return render_template("new.html", today=date.today().isoformat())
-
-
-@app.route("/request/<int:req_id>", methods=["GET", "POST"])
-def detail(req_id):
     db = get_db()
+    cur = db.execute(
+        "INSERT INTO requests (ref, requester, subject, received, deadline, status) "
+        "VALUES (?, ?, ?, ?, ?, 'Received')",
+        (ref, requester, subject, received, deadline.isoformat()),
+    )
+    db.commit()
+    return jsonify({"id": cur.lastrowid, "deadline": deadline.isoformat()}), 201
 
-    if request.method == "POST":
-        status = request.form["status"]
-        notes = request.form["notes"]
-        db.execute(
-            "UPDATE requests SET status = ?, notes = ? WHERE id = ?",
-            (status, notes, req_id),
-        )
-        db.commit()
-        return redirect(f"/request/{req_id}")
 
+@app.get("/api/requests/<int:req_id>")
+def get_request(req_id):
+    db = get_db()
     row = db.execute(
         "SELECT * FROM requests WHERE id = ?", (req_id,)
     ).fetchone()
-    today = date.today().isoformat()
-    return render_template("detail.html", r=row, statuses=STATUSES, today=today)
+    if row is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(dict(row))
 
 
+@app.post("/api/requests/<int:req_id>")
+def update_request(req_id):
+    data = request.get_json(silent=True) or request.form
+    status = data["status"]
+    notes = data.get("notes", "")
+    db = get_db()
+    db.execute(
+        "UPDATE requests SET status = ?, notes = ? WHERE id = ?",
+        (status, notes, req_id),
+    )
+    db.commit()
+    return jsonify({"ok": True})

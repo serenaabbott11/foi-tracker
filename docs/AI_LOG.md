@@ -1,5 +1,28 @@
 # AI Change Log
 
+## 2026-07-15 — Single-page app (Haseeb, assisted by Claude)
+
+**Why:** the lab proxy at `/proxy/5002/` breaks server-rendered navigation —
+clicking a row went to `/request/1` instead of `/proxy/5002/request/1`,
+so users couldn't test the app at all.
+
+**What changed:**
+- `/` now returns one HTML shell (`foi_tracker/templates/app.html`).
+- Data moved behind a JSON API: `GET/POST /api/requests`,
+  `GET/POST /api/requests/<id>`.
+- List, new-request form, and detail/edit are panels in the same page,
+  driven by vanilla JS with `fetch()`. All fetch URLs are relative
+  (`api/requests`, not `/api/…`) so they resolve under the proxy prefix.
+- `<base href="./">` in the shell locks the URL base to the current path.
+- Old templates (`base.html`, `index.html`, `new.html`, `detail.html`) removed.
+- SQL still parameterised, `SECRET_KEY` still required — security rules
+  from the previous change are preserved and tested.
+
+**Tests:** 6 tests pass (`test_index_serves_single_page_shell` added;
+existing four SQL injection tests updated to hit the API endpoints).
+
+---
+
 ## 2026-07-15 — Security hardening + repo reorganisation (Haseeb, assisted by Claude)
 
 **Branch:** `fix/security-hardening`

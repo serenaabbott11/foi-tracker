@@ -1,6 +1,12 @@
 # Claude context — `foi_tracker/` package
 
-This is the Flask app. The ICO will audit it. Two rules matter more than anything else.
+This is the Flask app. It's a **single-page app**: `/` returns one HTML shell
+(`templates/app.html`), and the browser talks to `/api/requests[/{id}]` via
+`fetch()`. All fetch URLs in the template are relative (`api/requests`, not
+`/api/…`) so they work under the lab proxy prefix. Do not add server-side
+navigation that assumes the app is mounted at `/`.
+
+The ICO will audit it. Two rules matter more than anything else.
 
 ## Rule 1 — Every SQL query is parameterised
 
@@ -44,9 +50,19 @@ This is guarded by `test_app_refuses_to_start_without_secret_key`.
 | `FLASK_DEBUG`  | `"1"` turns on Werkzeug debug (dev only)   | off       |
 | `FOI_DB`       | Path to the SQLite DB                      | `foi.db`  |
 
-## Adding new routes
+## Adding new endpoints
 
-- Import `db.execute` — pass values as a tuple, always. No exceptions.
-- Escape any user-controlled data going into templates via Jinja's default
-  autoescape — do not use `{% raw %}{{ x | safe }}{% endraw %}` on user input.
+- Add a JSON endpoint under `/api/…` — the frontend fetches it.
+- `db.execute` — pass values as a tuple, always. No exceptions.
+- Return `jsonify(...)` for success; use appropriate HTTP status codes
+  (`201` for create, `404` for not found).
 - Wrap DB writes in `db.commit()`; wrap reads in nothing.
+
+## Frontend
+
+- The whole UI lives in `templates/app.html` (HTML + inline CSS + inline JS).
+- Show/hide the `#new-panel` and `#detail-panel` divs via the `hidden` class.
+- Escape all user-controlled data going into the DOM with the `esc()` helper.
+  Never do `element.innerHTML = userInput` without escaping.
+- Keep fetch URLs relative (`api/requests`, `api/requests/${id}`) — the
+  `<base href="./">` tag depends on this.
