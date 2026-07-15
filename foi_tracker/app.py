@@ -7,8 +7,12 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from foi_tracker.config import DB_PATH
+from foi_tracker.audit import write_audit
 from foi_tracker.deadlines import calculate_deadline
+
+# Sentinel actor for requests made before HASEEB's login lands. AUD-3 will
+# replace this with `current_user.username` in a single place.
+_ACTOR_UNKNOWN = "unknown"
 
 app = Flask(__name__)
 
@@ -78,8 +82,25 @@ def create_request():
         "VALUES (?, ?, ?, ?, ?, 'Received')",
         (ref, requester, subject, received, deadline.isoformat()),
     )
+    new_id = cur.lastrowid
+    write_audit(
+        db,
+        action="create",
+        entity_type="request",
+        entity_id=new_id,
+        actor=_ACTOR_UNKNOWN,
+        actor_ip=request.remote_addr,
+        after={
+            "ref": ref,
+            "requester": requester,
+            "subject": subject,
+            "received": received,
+            "deadline": deadline.isoformat(),
+            "status": "Received",
+        },
+    )
     db.commit()
-    return jsonify({"id": cur.lastrowid, "deadline": deadline.isoformat()}), 201
+    return jsonify({"id": new_id, "deadline": deadline.isoformat()}), 201
 
 
 @app.get("/api/requests/<int:req_id>")
@@ -90,6 +111,16 @@ def get_request(req_id):
     ).fetchone()
     if row is None:
         return jsonify({"error": "not found"}), 404
+
+    write_audit(
+        db,
+        action="view",
+        entity_type="request",
+        entity_id=req_id,
+        actor=_ACTOR_UNKNOWN,
+        actor_ip=request.remote_addr,
+    )
+    db.commit()
     return jsonify(dict(row))
 
 
@@ -98,10 +129,27 @@ def update_request(req_id):
     data = request.get_json(silent=True) or request.form
     status = data["status"]
     notes = data.get("notes", "")
+
     db = get_db()
+    before_row = db.execute(
+        "SELECT * FROM requests WHERE id = ?", (req_id,)
+    ).fetchone()
+    if before_row is None:
+        return jsonify({"error": "not found"}), 404
+
     db.execute(
         "UPDATE requests SET status = ?, notes = ? WHERE id = ?",
         (status, notes, req_id),
+    )
+    write_audit(
+        db,
+        action="update",
+        entity_type="request",
+        entity_id=req_id,
+        actor=_ACTOR_UNKNOWN,
+        actor_ip=request.remote_addr,
+        before={"status": before_row["status"], "notes": before_row["notes"]},
+        after={"status": status, "notes": notes},
     )
     db.commit()
     return jsonify({"ok": True})
