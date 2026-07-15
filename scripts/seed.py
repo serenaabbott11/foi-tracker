@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 from foi_tracker.deadlines import calculate_deadline  # noqa: E402
 from scripts.migrate_add_audit_log import apply as apply_audit_log  # noqa: E402
+from scripts.migrate_add_retention import apply as apply_retention  # noqa: E402
 
 DEFAULT_DB_PATH = str(ROOT / "data" / "foi.db")
 
@@ -79,6 +80,7 @@ def seed(db_path: str, force: bool = False) -> None:
             (ref, requester, subject, received.isoformat(), deadline.isoformat(), status),
         )
     apply_audit_log(conn)
+    apply_retention(conn)
     conn.commit()
     conn.close()
 

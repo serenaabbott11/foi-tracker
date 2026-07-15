@@ -37,8 +37,10 @@ def _seed_temp_db(db_path: str) -> None:
         "'2026-01-01', '2026-01-29', 'Received', '')"
     )
     from scripts.migrate_add_audit_log import apply as apply_audit_log
+    from scripts.migrate_add_retention import apply as apply_retention
 
     apply_audit_log(conn)
+    apply_retention(conn)
     conn.commit()
     conn.close()
 

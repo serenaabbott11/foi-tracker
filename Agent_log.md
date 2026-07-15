@@ -116,3 +116,24 @@ Next: OPS-3 (backup + restore + drill), then DP-1 (retention columns).
   - Unit: `python -m pytest` → 35/35 green (28 previous + 7 new).
   - Manual smoke: seeded → backup → verified `.db.gz` in `backups/` → deleted `data/foi.db` → ran `restore.sh` → verified `requests` count matches, audit row for restore present.
 - **Trajectory notes:** one-shot; no rework.
+
+### DP-1 — retention columns migration + write path
+
+- **Files:**
+  - `scripts/migrate_add_retention.py` — new. Idempotent migration exposing `apply(conn)` + CLI. Uses `PRAGMA table_info` to detect which columns exist before running each `ALTER TABLE ADD COLUMN`. Adds five columns: `created_at`, `updated_at`, `responded_at`, `retention_until`, `team_id`. Backfills for existing rows: `created_at`/`updated_at` from `received`; `responded_at` from `received` **only** when `status='Responded'`; `retention_until` and `team_id` left NULL (populated by DP-3 sweeper and DP-4 team-scoping later).
+  - `scripts/seed.py` — imports and calls `apply_retention(conn)` after `apply_audit_log(conn)`, so a fresh `python -m scripts.seed` produces a DB with all columns from the outset.
+  - `foi_tracker/app.py`:
+    - `POST /api/requests`: INSERT now populates `created_at` and `updated_at` with `now_utc_iso()`.
+    - `POST /api/requests/<id>`: UPDATE bumps `updated_at`; uses a SQL `CASE` expression to set `responded_at` **only on the transition** to `'Responded'` and **only if it isn't already set** — re-saving a Responded row does not reset the responded date.
+    - Imports `now_utc_iso` from `foi_tracker.audit` (reused, one canonical timestamp helper).
+  - `tests/test_security.py`, `tests/test_audit_write.py`, `tests/test_backup_restore.py` — each fixture now calls `apply_retention(conn)` alongside `apply_audit_log(conn)`, so existing tests keep passing after the schema change.
+  - `tests/test_retention_schema.py` — new. 9 tests: migration adds all columns; idempotent (3×); backfills `created_at`/`updated_at` from `received`; backfills `responded_at` only when status is Responded; missing `requests` table → RuntimeError; `POST /api/requests` sets timestamps; `POST /api/requests/<id>` bumps `updated_at` without touching `created_at`; transition to Responded sets `responded_at`; re-saving Responded does not clobber `responded_at`.
+- **Why:** `plan.md` DP-1. Foundation for DP-3 (retention sweeper) — the sweeper needs `responded_at` and `retention_until` to know which rows are due for PII scrubbing. Also foundation for DP-4 (team separation) via `team_id`.
+- **Design choices:**
+  - `responded_at` is set with a `CASE` in the same UPDATE, atomic — no separate SELECT / UPDATE race.
+  - Timestamps are ISO-8601 UTC with `Z` suffix, second precision — matches the audit_log convention.
+  - Retention columns are TEXT (matching how other date columns are stored). Using ISO-8601 strings keeps the whole schema string-comparable and human-readable.
+- **Verification:**
+  - Unit: `python -m pytest` → 44/44 green (35 previous + 9 new).
+  - Manual smoke: seeded fresh DB, confirmed backfilled `created_at`/`updated_at`/`responded_at` on the sample rows (Responded rows have all three, in-progress rows have `responded_at` NULL). Live-created row via curl POST + status transition to Responded → all three timestamps populated with the same UTC ISO instant.
+- **Trajectory notes:** the first smoke-test attempt showed the new row with NULL timestamps; turned out a stray `python run.py` process was still bound to :5002 from an earlier session and answered the curl before the freshly-started server did. Killed the stale process, retried, all correct. Not a code bug — an environment gotcha worth remembering when smoke-testing.

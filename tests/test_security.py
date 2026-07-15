@@ -28,10 +28,12 @@ def client(monkeypatch):
         "VALUES ('FOI-TEST-001', 'A. Tester', 'Bridge inspections', "
         "'2026-01-01', '2026-01-29', 'Received', '')"
     )
-    # AUD-1: endpoints write to audit_log, so the fixture DB must have it.
+    # AUD-1: endpoints write to audit_log; DP-1: endpoints write retention cols.
     from scripts.migrate_add_audit_log import apply as apply_audit_log
+    from scripts.migrate_add_retention import apply as apply_retention
 
     apply_audit_log(conn)
+    apply_retention(conn)
     conn.commit()
     conn.close()
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from foi_tracker.audit import write_audit
+from foi_tracker.audit import now_utc_iso, write_audit
 from foi_tracker.deadlines import calculate_deadline
 
 # Sentinel actor for requests made before HASEEB's login lands. AUD-3 will
@@ -75,12 +75,14 @@ def create_request():
     received = data["received"]
 
     deadline = calculate_deadline(datetime.strptime(received, "%Y-%m-%d").date())
+    now = now_utc_iso()
 
     db = get_db()
     cur = db.execute(
-        "INSERT INTO requests (ref, requester, subject, received, deadline, status) "
-        "VALUES (?, ?, ?, ?, ?, 'Received')",
-        (ref, requester, subject, received, deadline.isoformat()),
+        "INSERT INTO requests (ref, requester, subject, received, deadline, "
+        "status, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, 'Received', ?, ?)",
+        (ref, requester, subject, received, deadline.isoformat(), now, now),
     )
     new_id = cur.lastrowid
     write_audit(
@@ -137,9 +139,17 @@ def update_request(req_id):
     if before_row is None:
         return jsonify({"error": "not found"}), 404
 
+    now = now_utc_iso()
+    # responded_at is set on the transition to 'Responded' (only if not
+    # already set). Uses SQL CASE so the update is atomic and re-transitioning
+    # doesn't clobber the original responded_at.
     db.execute(
-        "UPDATE requests SET status = ?, notes = ? WHERE id = ?",
-        (status, notes, req_id),
+        "UPDATE requests SET status = ?, notes = ?, updated_at = ?, "
+        "responded_at = CASE "
+        "  WHEN ? = 'Responded' AND responded_at IS NULL THEN ? "
+        "  ELSE responded_at END "
+        "WHERE id = ?",
+        (status, notes, now, status, now, req_id),
     )
     write_audit(
         db,
