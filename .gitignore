@@ -1,6 +1,11 @@
 *.db
+# Live data, backups, and pre-restore safety copies live under data/ and must
+# never be committed. Keep the directory itself (via .gitkeep) but nothing in it.
+/data/*
+!/data/.gitkeep
 __pycache__/
 *.pyc
 .venv/
 venv/
 .env
+CLAUDE-tee.MD

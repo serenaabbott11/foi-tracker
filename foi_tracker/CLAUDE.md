@@ -44,11 +44,22 @@ This is guarded by `test_app_refuses_to_start_without_secret_key`.
 
 ## Config summary
 
-| Env var        | Purpose                                    | Default   |
-|----------------|--------------------------------------------|-----------|
-| `SECRET_KEY`   | Flask session signing key                  | *required* |
-| `FLASK_DEBUG`  | `"1"` turns on Werkzeug debug (dev only)   | off       |
-| `FOI_DB`       | Path to the SQLite DB                      | `foi.db`  |
+Paths are resolved in `foi_tracker/config.py` (a side-effect-free module that
+the backup/restore scripts also import — it does **not** require `SECRET_KEY`).
+
+| Env var           | Purpose                                    | Default          |
+|-------------------|--------------------------------------------|------------------|
+| `SECRET_KEY`      | Flask session signing key                  | *required*       |
+| `FLASK_DEBUG`     | `"1"` turns on Werkzeug debug (dev only)   | off              |
+| `FOI_DB`          | Path to the SQLite DB                      | `data/foi.db`    |
+| `FOI_DATA_DIR`    | Base dir for the DB and backups            | `data/`          |
+| `FOI_BACKUP_DIR`  | Where `scripts/backup.py` writes snapshots | `data/backups/`  |
+| `FOI_BACKUP_KEEP` | How many backups to retain                 | `14`             |
+
+The DB lives under `data/` — outside the code tree — so `scripts/seed.py`
+wiping/recreating it never touches source, and `data/` is gitignored. See the
+README for backup/restore usage; `tests/test_backup_restore.py` proves a
+restore recovers the data after loss.
 
 ## Adding new endpoints
 

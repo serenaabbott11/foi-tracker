@@ -34,6 +34,35 @@ For dev with auto-reload: `FLASK_DEBUG=1 python run.py`
 python -m pytest
 ```
 
+## Data, backup & restore
+
+The database lives at `data/foi.db` — **outside the code tree**, so editing
+code or re-running `seed.py` never sits on top of live data. The `data/`
+directory is gitignored (only `.gitkeep` is tracked).
+
+```bash
+python -m scripts.backup      # verified snapshot -> data/backups/foi-<timestamp>.db
+python -m scripts.restore     # restore the newest backup
+python -m scripts.restore data/backups/foi-20260715-141112.db   # a specific one
+```
+
+- Backups use SQLite's online backup API, so they are safe to take **while the
+  app is running** and are transactionally consistent.
+- Each backup is verified with `PRAGMA integrity_check`; a corrupt backup is
+  never kept, and `restore` refuses to write one over your live DB.
+- `restore` copies the current DB aside to `data/foi.db.pre-restore-<timestamp>`
+  first, so a restore is itself reversible.
+- The newest `FOI_BACKUP_KEEP` (default 14) backups are retained; older ones
+  are pruned automatically.
+- Proven by `tests/test_backup_restore.py` (backup → data loss → restore →
+  data matches).
+
+For scheduled backups, add a cron entry, e.g. hourly:
+
+```cron
+0 * * * * cd /path/to/foi-tracker && python -m scripts.backup >> data/backups/backup.log 2>&1
+```
+
 ## Notes
 
 - `SECRET_KEY` is **required** — the app refuses to start without it.
