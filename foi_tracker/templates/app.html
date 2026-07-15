@@ -33,7 +33,7 @@
   </header>
 
   <div class="toolbar">
-    <input id="search" type="text" placeholder="Search subject or requester…" autocomplete="off">
+    <input id="search" type="text" placeholder="Search any field — ref, requester, subject, status, notes, dates…" autocomplete="off">
     <span class="count" id="count"></span>
   </div>
 
@@ -114,7 +114,11 @@
         tr.addEventListener("click", () => showDetail(r.id));
         tbody.appendChild(tr);
       }
-      $("count").textContent = `${rows.length} request${rows.length === 1 ? "" : "s"}`;
+      const label = rows.length === 1 ? "1 match" : `${rows.length} matches`;
+      $("count").textContent = q ? `${label} for “${q}”` : `${rows.length} request${rows.length === 1 ? "" : "s"}`;
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#505a5f; padding:1.5rem;">No requests match your search.</td></tr>`;
+      }
     }
 
     async function showDetail(id) {

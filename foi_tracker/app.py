@@ -19,6 +19,11 @@ DB = os.environ.get("FOI_DB", "foi.db")
 
 STATUSES = ["Received", "In progress", "Internal review", "Responded", "Overdue"]
 
+# Columns matched by the free-text search box. These are all-text columns —
+# the SQL is built by joining these names with `OR`, so they must be a
+# hard-coded allowlist (never user input).
+SEARCHABLE_COLUMNS = ("ref", "requester", "subject", "received", "deadline", "status", "notes")
+
 
 def get_db():
     conn = sqlite3.connect(DB)
@@ -37,13 +42,14 @@ def index():
 
 @app.get("/api/requests")
 def list_requests():
-    q = request.args.get("q", "")
+    q = request.args.get("q", "").strip()
     db = get_db()
     if q:
+        pattern = f"%{q.lower()}%"
+        where = " OR ".join(f"LOWER({col}) LIKE ?" for col in SEARCHABLE_COLUMNS)
         rows = db.execute(
-            "SELECT * FROM requests WHERE subject LIKE ? OR requester LIKE ? "
-            "ORDER BY deadline",
-            (f"%{q}%", f"%{q}%"),
+            f"SELECT * FROM requests WHERE {where} ORDER BY deadline",
+            [pattern] * len(SEARCHABLE_COLUMNS),
         ).fetchall()
     else:
         rows = db.execute("SELECT * FROM requests ORDER BY deadline").fetchall()

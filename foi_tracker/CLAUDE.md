@@ -50,6 +50,17 @@ This is guarded by `test_app_refuses_to_start_without_secret_key`.
 | `FLASK_DEBUG`  | `"1"` turns on Werkzeug debug (dev only)   | off       |
 | `FOI_DB`       | Path to the SQLite DB                      | `foi.db`  |
 
+## Search
+
+The search box (`GET /api/requests?q=…`) matches against every column in
+`SEARCHABLE_COLUMNS` — a hard-coded tuple defined in `app.py`. To add a new
+searchable column, add it to that tuple. The tuple is *code*, never user
+input, so it can be interpolated into the SQL string safely.
+
+Search is case-insensitive (both sides go through `LOWER()`) and the query
+is `.strip()`-ed before use. Empty or whitespace-only queries return every
+row unfiltered.
+
 ## Adding new endpoints
 
 - Add a JSON endpoint under `/api/…` — the frontend fetches it.

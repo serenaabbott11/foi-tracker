@@ -1,5 +1,35 @@
 # AI Change Log
 
+## 2026-07-15 — Search across every column, case-insensitive (Haseeb, assisted by Claude)
+
+**Why:** the search box only matched `subject` and `requester`, and was
+case-sensitive to non-ASCII. Users couldn't find a request by ref number
+(e.g. `FOI-2026-0163`), by status ("Overdue"), by date, or by notes.
+
+**What changed:**
+- `foi_tracker/app.py` — `list_requests()` now searches a hard-coded
+  allowlist of columns (`SEARCHABLE_COLUMNS`): ref, requester, subject,
+  received, deadline, status, notes.
+- Case-insensitive: query and each column go through `LOWER()`.
+- Whitespace-trimmed: `.strip()` on the query so `"  Thames  "` matches.
+- Empty / whitespace-only query returns the full list (unchanged).
+- SQL is still parameterised — the allowlist of column names is *code*,
+  never user input, so building the `WHERE` clause with `f"…"` on the
+  column names is safe.
+- Frontend placeholder updated: "Search any field — ref, requester,
+  subject, status, notes, dates…".
+- Empty-state message when no rows match: "No requests match your search."
+
+**Tests:** 14 new tests in `tests/test_search.py` (matches by every
+column, case-insensitive, whitespace trimming, no-match empty response,
+substring matching, empty and whitespace-only queries return all).
+Shared `client` fixture moved to `tests/conftest.py` and seeded with
+5 varied rows so all tests can exploit them.
+
+**All 19 tests pass.**
+
+---
+
 ## 2026-07-15 — Single-page app (Haseeb, assisted by Claude)
 
 **Why:** the lab proxy at `/proxy/5002/` breaks server-rendered navigation —
