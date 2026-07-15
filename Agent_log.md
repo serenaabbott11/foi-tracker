@@ -154,3 +154,31 @@ Next: OPS-3 (backup + restore + drill), then DP-1 (retention columns).
 - **Why:** `plan.md` OPS-6. Cheap dependency for OPS-4a's `HEALTHCHECK` directive in the Dockerfile, and for any external monitor. Auth-free by design (needs to work before login lands).
 - **Verification:** `python -m pytest` → 59/59 green.
 - **Trajectory notes:** one-shot; no rework.
+
+### OPS-4 — Dockerfile + docker-compose + install.sh + systemd units
+
+The full "deployment story that isn't Gary's desktop." Both paths from
+the brief (container *and* setup script) are shipped, per user decision.
+
+- **Files:**
+  - `Dockerfile` — new. `python:3.12-slim` base + `sqlite3` CLI (needed by `backup.sh`/`restore.sh`). Non-root `foi` user. Gunicorn (`--workers 2`, access + error logs to stdout). Data + backups in named volumes (`/data`, `/backups`) with `FOI_DB` / `BACKUP_DIR` env vars pointed at them. `HEALTHCHECK` probes `/api/healthz` via a `urllib.request` one-liner (no `curl` needed in the image).
+  - `docker-compose.yml` — new. `services.app` with the same env, volumes, and a container-level `healthcheck` mirroring the Dockerfile. `SECRET_KEY:?` bail-out if the caller forgot to copy `.env.example` to `.env`.
+  - `.env.example` — new. Placeholder `SECRET_KEY=CHANGE_ME` and inline instructions for generating a real one.
+  - `deploy/systemd/foi-tracker.service` — new. `Type=exec` under the `foi-tracker` user, Gunicorn, `EnvironmentFile=/etc/foi-tracker/env`, `Restart=on-failure`, and standard hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `ReadWritePaths` only for `/var/lib/foi-tracker` and `/var/log/foi-tracker`).
+  - `deploy/systemd/foi-tracker-backup.service` — one-shot unit that invokes `scripts/backup.sh` under the service user with the same hardening.
+  - `deploy/systemd/foi-tracker-backup.timer` — daily at 02:00 local, `Persistent=true` so a missed run catches up on next boot, `RandomizedDelaySec=15min` to stagger multiple hosts.
+  - `scripts/install.sh` — new, idempotent installer. Creates `foi-tracker` system user, lays out `/opt/foi-tracker` (code), `/var/lib/foi-tracker` (data + `backups/`), `/var/log/foi-tracker`, generates `SECRET_KEY` on first run into `/etc/foi-tracker/env` (`chmod 600`), seeds a fresh DB or applies the audit_log + retention migrations on upgrades, installs and enables the systemd units. Safe to re-run for upgrades.
+  - `docs/DEPLOYMENT.md` — new. Side-by-side runbook: path A (Docker) vs path B (systemd), including manual backup/restore under Docker, log locations, upgrade flow, and an explicit "not doing (and why)" section referencing OPS-8 for aspirational IaC.
+  - `requirements.txt` — added `gunicorn` (used in both container and systemd deployments).
+  - `tests/test_deploy_artefacts.py` — new, 9 cheap static-validation tests. `bash -n` syntax check on the three shell scripts; Dockerfile mentions `HEALTHCHECK`, `/api/healthz`, `USER foi`, `gunicorn`; docker-compose parses as YAML with the `app` service; systemd units parse as INI with `EnvironmentFile`, `gunicorn`, hardening directives, and `OnCalendar=`; `.env.example` has `SECRET_KEY=CHANGE_ME`.
+- **Why:** `plan.md` OPS-4a + OPS-4b. The brief explicitly requires both — container *where possible*, install script *where not*. Both share the same code, env, backup/restore scripts, and the OPS-6 healthcheck; a monitoring probe or auditor can inspect either the same way.
+- **Design choices:**
+  - Gunicorn (not the Flask dev server) in both paths — matches GDS Way, and `debug=True` remains impossible outside `FLASK_DEBUG=1`.
+  - Non-root at runtime in both paths.
+  - Hardening on the systemd unit uses only the directives that make sense for a SQLite-backed app; nothing fancy like Landlock or seccomp filters (which need per-distro work).
+  - The container HEALTHCHECK deliberately uses a Python one-liner rather than `curl` — no extra apt install, keeps the image slim.
+  - `install.sh` **regenerates the venv** on every run rather than trying to upgrade in place. Cheap on this size of app; guarantees a clean install of Gunicorn on upgrades.
+- **Verification:**
+  - Unit: `python -m pytest` → 68/68 green (59 previous + 9 new).
+  - Manual smoke: not run — Docker isn't available on this machine and `install.sh` needs root on a Debian/Ubuntu host. Static validation covers what we can automate; end-to-end is a manual drill described in `docs/DEPLOYMENT.md`.
+- **Trajectory notes:** one-shot; no rework.

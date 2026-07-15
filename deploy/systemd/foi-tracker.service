@@ -1,0 +1,29 @@
+[Unit]
+Description=FOI Deadline Tracker (Flask app under Gunicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=foi-tracker
+Group=foi-tracker
+WorkingDirectory=/opt/foi-tracker
+EnvironmentFile=/etc/foi-tracker/env
+ExecStart=/opt/foi-tracker/.venv/bin/gunicorn \
+    --bind 127.0.0.1:5002 \
+    --workers 2 \
+    --access-logfile /var/log/foi-tracker/access.log \
+    --error-logfile /var/log/foi-tracker/error.log \
+    foi_tracker.app:app
+Restart=on-failure
+RestartSec=5s
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/foi-tracker /var/log/foi-tracker
+
+[Install]
+WantedBy=multi-user.target

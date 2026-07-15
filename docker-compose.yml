@@ -1,0 +1,32 @@
+# OPS-4a: docker-compose for local / small deployments.
+#
+# Usage:
+#   cp .env.example .env    # then edit SECRET_KEY
+#   docker compose up -d --build
+#   docker compose exec app python -m scripts.seed --force   # first-time seed
+#
+# See docs/DEPLOYMENT.md for the full runbook.
+
+services:
+  app:
+    build: .
+    ports:
+      - "5002:5002"
+    volumes:
+      - foi-data:/data
+      - foi-backups:/backups
+    environment:
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY not set — copy .env.example to .env}
+      - FOI_DB=/data/foi.db
+      - BACKUP_DIR=/backups
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u, sys; sys.exit(0 if u.urlopen('http://localhost:5002/api/healthz').status == 200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  foi-data:
+  foi-backups:

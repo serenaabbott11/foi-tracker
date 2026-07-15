@@ -1,0 +1,12 @@
+[Unit]
+Description=FOI Deadline Tracker — nightly backup timer
+
+[Timer]
+# Fire nightly at ~02:00 local time (RandomizedDelaySec staggers hosts).
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+RandomizedDelaySec=15min
+Unit=foi-tracker-backup.service
+
+[Install]
+WantedBy=timers.target

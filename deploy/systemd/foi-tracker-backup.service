@@ -1,0 +1,18 @@
+[Unit]
+Description=FOI Deadline Tracker — nightly SQLite backup
+After=network.target
+
+[Service]
+Type=oneshot
+User=foi-tracker
+Group=foi-tracker
+WorkingDirectory=/opt/foi-tracker
+EnvironmentFile=/etc/foi-tracker/env
+ExecStart=/opt/foi-tracker/scripts/backup.sh
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/foi-tracker
