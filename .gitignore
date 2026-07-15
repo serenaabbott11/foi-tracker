@@ -9,3 +9,5 @@ __pycache__/
 venv/
 .env
 plan.md
+backups/
+data/foi.db.pre-restore-*

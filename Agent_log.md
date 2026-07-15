@@ -78,10 +78,41 @@ Each entry:
   - End-to-end: seeded a real DB, started `python run.py`, created request 14 via `curl`, viewed it, updated it. `sqlite3` inspection of `audit_log` shows three rows with correct action, entity_id, actor='unknown', actor_ip='127.0.0.1', UTC timestamps, and correct before/after JSON on the update.
 - **Trajectory notes:** one-shot; no rework. Small behaviour change (silent no-op → 404 on missing `POST /api/requests/<id>`) was necessary for the audit's "before" state to be meaningful — flagged for the team.
 
+### Committed OPS-1 / AUD-1 / AUD-2, merged origin/main, pushed branch
+
+- **Commits:**
+  - `e260b2b` — docs: merge workflow rules into CLAUDE.md; add Agent_log
+  - `39bdc85` — OPS-1: safe DB default + seed.py --force guard
+  - `df92b27` — AUD-1: audit_log table + immutability triggers
+  - `d314295` — AUD-2: audit write path (actor='unknown' pending AUD-3)
+  - `81969a9` — Merge origin/main (Serena's PR #4: bank-holiday deadline fix)
+- **Why split into four commits:** followed `CLAUDE.md` §"Commit message example". Each of the three code commits touches only its own concern — used intermediate file rewrites of `foi_tracker/app.py` and `scripts/seed.py` so the OPS-1 commit doesn't carry AUD-2 hunks and vice versa. Clean per-feature `git log --stat` / `git blame`.
+- **Merge context:** `origin/main` moved forward while we were working. Merged in Serena's bank-holiday fix (`foi_tracker/deadlines.py`, `foi_tracker/bank-holidays.json`, `tests/test_deadlines.py`, `tests/CLAUDE.md`). No conflicts — she touched files we didn't. `calculate_deadline` signature unchanged, so our seed/app code still works.
+- **Push:** `git push -u origin operations_GDPR_audit` — remote branch created. Team can now checkout and test.
+- **Verification:** `python -m pytest` at HEAD → 28/28 green (23 ours + 5 from Serena's deadline tests).
+- **Trajectory notes:** one item worth flagging — I had to configure `git config user.name` / `user.email` locally (repo-scoped, not `--global`) because git wouldn't let me commit without an identity; asked user for the values first per system rules.
+
 ---
 
-## Pause point — checking in with user
+## Pause point cleared — continuing with plan.md Day 1 §4–5
 
-Day 1 items 1–3 from `plan.md` §5 are done: OPS-1, AUD-1, AUD-2.
-Remaining Day 1: OPS-3 (backups + restore drill) and DP-1 (retention columns).
-Nothing has been committed yet — awaiting user sign-off on the code before making the first `[Agent_Satyavrat]` commit(s).
+Next: OPS-3 (backup + restore + drill), then DP-1 (retention columns).
+
+### OPS-3 — backup + restore + drill runbook
+
+- **Files:**
+  - `scripts/backup.sh` — new. Uses `sqlite3 .backup` (SQLite's online backup API, safe on a live DB), gzips into `$BACKUP_DIR`, prunes to the 14 most recent by mtime. Writes an `action='backup'`, `actor='system'` row to `audit_log`. Best-effort audit — missing `audit_log` table only warns, doesn't fail the backup.
+  - `scripts/restore.sh` — new. Takes a `.db.gz` path. Extracts to a same-filesystem staging path (so the final `mv` is atomic), smoke-tests that `requests` and `audit_log` both query cleanly, moves the current live DB aside as a `.pre-restore-<ts>` safety copy, swaps the restored DB in, writes an `action='restore'` audit row to the restored DB.
+  - `docs/RESTORE-DRILL.md` — new. The runbook for "Gary's machine dies on a Wednesday", including a **drill log table** to be filled in on the first real rehearsal. Explicitly documents one known limitation (§4): the `action='backup'` audit row is written *after* the snapshot, so it never appears inside the backup it describes — the backup file itself is the durable evidence.
+  - `tests/test_backup_restore.py` — new. 7 subprocess-driven tests: backup produces `.db.gz`; backup writes audit row; end-to-end round-trip (baseline count → backup → delete DB → restore → count matches); restore writes audit row; restore rejects a corrupt `.db.gz`; restore errors on missing file; retention keeps only the 14 most recent files.
+  - `.gitignore` — added `backups/` and `data/foi.db.pre-restore-*` so drill artefacts don't accidentally get committed.
+- **Why:** `plan.md` OPS-3. Highest-value operations item — this is the answer to the ICO auditor's Q4 (*"Gary's machine dies, walk me through recovery"*).
+- **Design choices worth noting:**
+  - Retention is **daily-only automatic** (14 files). Weekly (8-week retention) is documented as a *manual promotion* step in `RESTORE-DRILL.md`. Rationale: automatic weekly tagging needs either a separate cron or in-script day-of-week logic, both of which add moving parts. Manual promotion is honest.
+  - Backup filenames use **UTC** timestamps (`foi-YYYYMMDD-HHMMSSZ.db.gz`) — hosts across time zones sort consistently.
+  - Staging paths sit on the **same filesystem** as their target so the final `mv` is atomic (no torn state if the process is killed).
+  - Restore does an active **smoke test** on the staging DB before touching the live one — a corrupted backup can't nuke a healthy live DB.
+- **Verification:**
+  - Unit: `python -m pytest` → 35/35 green (28 previous + 7 new).
+  - Manual smoke: seeded → backup → verified `.db.gz` in `backups/` → deleted `data/foi.db` → ran `restore.sh` → verified `requests` count matches, audit row for restore present.
+- **Trajectory notes:** one-shot; no rework.
