@@ -137,3 +137,20 @@ Next: OPS-3 (backup + restore + drill), then DP-1 (retention columns).
   - Unit: `python -m pytest` → 44/44 green (35 previous + 9 new).
   - Manual smoke: seeded fresh DB, confirmed backfilled `created_at`/`updated_at`/`responded_at` on the sample rows (Responded rows have all three, in-progress rows have `responded_at` NULL). Live-created row via curl POST + status transition to Responded → all three timestamps populated with the same UTC ISO instant.
 - **Trajectory notes:** the first smoke-test attempt showed the new row with NULL timestamps; turned out a stray `python run.py` process was still bound to :5002 from an earlier session and answered the curl before the freshly-started server did. Killed the stale process, retried, all correct. Not a code bug — an environment gotcha worth remembering when smoke-testing.
+
+### Merge origin/main — PR #5 (Serena's search improvements)
+
+- **Commit:** `b9cced6`
+- **Brought in:** case-insensitive `LOWER()` search across a `SEARCHABLE_COLUMNS` allowlist, whitespace-trimmed query, UI polish (shorter placeholder, status autocomplete), and a new `tests/conftest.py` centralising the `client` and `reload_app` fixtures.
+- **Manual conflict resolution:** `tests/test_security.py` had two competing rewrites — origin/main deleted the inline `client` fixture (moved to `conftest.py`), while our branch had extended it with `apply_audit_log` + `apply_retention`. Took origin/main's slim `test_security.py`, moved the migration hooks into `conftest.py`'s `client` fixture instead — so every test now uses the shared fixture *and* gets audit_log + retention columns.
+- **Verification:** 57/57 tests pass at the merge tip (44 ours + 13 from PR #5).
+- **Trajectory notes:** the two-way rewrite of the fixture was the interesting bit. Adopting `conftest.py` as the single source of test-DB shape is the right call anyway — reduces the fixture drift risk across `test_audit_write.py`, `test_backup_restore.py`, etc. Those still have their own fixtures for now (out of scope for this merge).
+
+### OPS-6 — healthcheck `GET /api/healthz`
+
+- **Files:**
+  - `foi_tracker/app.py` — added `healthz()` handler. Returns `200 {"ok": true, "db": true}` when `SELECT 1` succeeds on `get_db()`; `503 {"ok": false, "db": false}` on `sqlite3.Error`. Deliberately **not** audit-logged — cron / Docker HEALTHCHECK will hammer this endpoint and it would flood `audit_log`.
+  - `tests/test_healthz.py` — 2 tests. Endpoint returns `{ok: true, db: true}` under the normal fixture; three sequential hits produce zero audit rows.
+- **Why:** `plan.md` OPS-6. Cheap dependency for OPS-4a's `HEALTHCHECK` directive in the Dockerfile, and for any external monitor. Auth-free by design (needs to work before login lands).
+- **Verification:** `python -m pytest` → 59/59 green.
+- **Trajectory notes:** one-shot; no rework.

@@ -50,6 +50,25 @@ def index():
     )
 
 
+@app.get("/api/healthz")
+def healthz():
+    """OPS-6: liveness + DB reachability. Not audit-logged.
+
+    Returns 200 + {"ok": true, "db": true} when both the app and the DB
+    respond, else 503 with `db: false`. Used by container HEALTHCHECK
+    and external monitors — must remain cheap and auth-free.
+    """
+    db_ok = False
+    try:
+        db = get_db()
+        db.execute("SELECT 1").fetchone()
+        db_ok = True
+    except sqlite3.Error:
+        db_ok = False
+    status_code = 200 if db_ok else 503
+    return jsonify({"ok": db_ok, "db": db_ok}), status_code
+
+
 @app.get("/api/requests")
 def list_requests():
     q = request.args.get("q", "").strip()
