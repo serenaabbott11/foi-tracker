@@ -1,3 +1,4 @@
+"""Security tests: SQL injection is closed and unsafe defaults are gone."""
 import os
 import sqlite3
 import sys
@@ -31,8 +32,8 @@ def client(monkeypatch):
 
     monkeypatch.setenv("SECRET_KEY", "test-key")
     monkeypatch.setenv("FOI_DB", path)
-    sys.modules.pop("app", None)
-    from app import app as flask_app
+    _reload_app()
+    from foi_tracker.app import app as flask_app
 
     flask_app.config["TESTING"] = True
     yield flask_app.test_client()
@@ -40,8 +41,14 @@ def client(monkeypatch):
     os.remove(path)
 
 
+def _reload_app():
+    for mod in list(sys.modules):
+        if mod == "foi_tracker" or mod.startswith("foi_tracker."):
+            sys.modules.pop(mod, None)
+
+
 def test_search_blocks_sql_injection(client):
-    # Classic injection: if unpatched, this would dump all rows
+    """Classic ' OR 1=1-- attack must not dump the table."""
     response = client.get("/?q=' OR 1=1--")
     assert response.status_code == 200
     assert b"FOI-TEST-001" not in response.data
@@ -82,6 +89,6 @@ def test_update_request_handles_quotes_safely(client):
 
 def test_app_refuses_to_start_without_secret_key(monkeypatch):
     monkeypatch.delenv("SECRET_KEY", raising=False)
-    sys.modules.pop("app", None)
+    _reload_app()
     with pytest.raises(RuntimeError, match="SECRET_KEY"):
-        import app  # noqa: F401
+        import foi_tracker.app  # noqa: F401

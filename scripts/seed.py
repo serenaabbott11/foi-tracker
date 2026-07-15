@@ -1,16 +1,26 @@
-# Creates foi.db and loads some sample requests.
-# Run once: python seed.py  (deletes any existing database!)
+"""Create foi.db and load sample requests.
 
+Run from the repo root:
+    python -m scripts.seed
+"""
 import os
 import sqlite3
+import sys
 from datetime import date, timedelta
+from pathlib import Path
 
-from deadlines import calculate_deadline
+# Make the foi_tracker package importable when running as a script.
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-if os.path.exists("foi.db"):
-    os.remove("foi.db")
+from foi_tracker.deadlines import calculate_deadline
 
-conn = sqlite3.connect("foi.db")
+DB_PATH = os.environ.get("FOI_DB", str(ROOT / "foi.db"))
+
+if os.path.exists(DB_PATH):
+    os.remove(DB_PATH)
+
+conn = sqlite3.connect(DB_PATH)
 conn.execute("""
     CREATE TABLE requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,4 +61,4 @@ for ref, requester, subject, days_ago, status in SAMPLE:
 
 conn.commit()
 conn.close()
-print(f"Seeded foi.db with {len(SAMPLE)} requests")
+print(f"Seeded {DB_PATH} with {len(SAMPLE)} requests")

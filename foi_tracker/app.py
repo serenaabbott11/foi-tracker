@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from flask import Flask, redirect, render_template, request
 
-from deadlines import calculate_deadline
+from foi_tracker.deadlines import calculate_deadline
 
 app = Flask(__name__)
 
@@ -87,6 +87,3 @@ def detail(req_id):
     return render_template("detail.html", r=row, statuses=STATUSES, today=today)
 
 
-if __name__ == "__main__":
-    debug = os.environ.get("FLASK_DEBUG") == "1"
-    app.run(debug=debug, port=5002)
