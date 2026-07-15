@@ -3,6 +3,7 @@
 import os
 import sqlite3
 from datetime import date, datetime
+from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
@@ -16,7 +17,11 @@ if not _secret:
     raise RuntimeError("SECRET_KEY environment variable must be set")
 app.secret_key = _secret
 
-DB = str(DB_PATH)
+# Default DB lives under <repo>/data/ so it does not sit next to source files
+# and won't be wiped by an accidental `python -m scripts.seed` without --force.
+# Override with FOI_DB.
+_DEFAULT_DB = str(Path(__file__).resolve().parent.parent / "data" / "foi.db")
+DB = os.environ.get("FOI_DB", _DEFAULT_DB)
 
 STATUSES = ["Received", "In progress", "Internal review", "Responded", "Overdue"]
 
