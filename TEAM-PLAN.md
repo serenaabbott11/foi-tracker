@@ -1,0 +1,42 @@
+# FOI Deadline Tracker — Team Plan
+
+## Serena — Deadline Fix
+**File:** `deadlines.py`
+
+- Fetch GOV.UK bank holidays API and cache locally
+- Rewrite `calculate_deadline()` to skip bank holidays as well as weekends
+- Write tests: Easter, Christmas, Aug bank holiday (`FOI-2026-0188`)
+- Re-seed the database and verify corrected deadlines in the app
+
+---
+
+## Haseeb — Security
+**File:** `app.py`
+
+- Fix all 4 SQL injection points (lines 33, 54, 73, 78) with parameterised queries
+- Fix `secret_key = "dev"` → load from environment variable
+- Remove `debug=True`
+- Add basic login with Flask-Login (users table, hashed passwords)
+
+---
+
+## Person 3 — Audit Log
+**Files:** `app.py` + database schema
+
+- Add `audit_log` table (`id`, `request_id`, `changed_by`, `timestamp`, `old_status`, `new_status`)
+- On every POST to `/request/<id>`, write a row before committing
+- Show log entries on the detail page
+- Wire in username from Haseeb's login so each row records who changed what
+
+---
+
+## Person 4 — Ops + Presentations
+- Backup strategy: move `foi.db` to `/data/`, write backup script, prove restore works
+- GDPR: add PII deletion function, document retention policy
+- Write up audit findings (what's broken, why it matters, priority order)
+- Prepare and deliver both presentations (Day 1: 5 mins, Day 2: 10 mins)
+
+---
+
+## Key Dependency
+> Haseeb (login) feeds into Person 3 (audit log needs usernames). Haseeb should aim to have login working before Person 3 finishes the audit log.
