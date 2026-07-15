@@ -1,6 +1,6 @@
 from datetime import date
 
-from deadlines import calculate_deadline
+from foi_tracker.deadlines import calculate_deadline
 
 
 def test_easter_2026_skips_good_friday_and_easter_monday():

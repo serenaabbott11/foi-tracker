@@ -19,11 +19,19 @@ it before importing `foi_tracker.app` inside a test.
 
 - `test_security.py` — every SQL path is parameterised (search, insert, update, select),
   and the app refuses to start without `SECRET_KEY`.
+- `test_deadlines.py` — `calculate_deadline` returns the right date across Easter,
+  Christmas, and the Summer bank holiday. Also asserts Maundy Thursday counts as
+  a working day (it isn't a UK bank holiday, and treating it as one silently
+  slips every Easter-period deadline by a day).
 
 ## Adding tests
 
 Prefer the `client` fixture. If you need a fresh DB per test, that's already
 what the fixture provides — each test gets its own tempfile.
+
+Pure logic tests (like `test_deadlines.py`) skip the fixture entirely — just
+`from foi_tracker.deadlines import ...` and assert. The bank-holiday JSON is
+loaded at import time from inside the package, so no env setup is needed.
 
 For tests that must run *without* the fixture setting env vars (e.g. asserting
 startup failure), use `monkeypatch.delenv(...)` explicitly and call `_reload_app()`.
