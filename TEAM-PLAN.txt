@@ -15,18 +15,18 @@ File: app.py
 - Remove debug=True
 - Add basic login with Flask-Login (users table, hashed passwords)
 
-PERSON 3 - Audit Log
+SATYAVRAT - Audit Log
 Files: app.py + database schema
 - Add audit_log table (id, request_id, changed_by, timestamp, old_status, new_status)
 - On every POST to /request/<id>, write a row before committing
 - Show log entries on the detail page
 - Wire in username from Haseeb's login so each row records who changed what
 
-PERSON 4 - Ops + Presentations
+TEEMERTE - Ops + Presentations
 - Backup strategy: move foi.db to /data/, write backup script, prove restore works
 - GDPR: add PII deletion function, document retention policy
 - Write up audit findings (what's broken, why it matters, priority order)
 - Prepare and deliver both presentations (Day 1: 5 mins, Day 2: 10 mins)
 
 KEY DEPENDENCY
-Person 3 needs Haseeb's login done first - audit log needs usernames.
+Satyavrat needs Haseeb's login done first - audit log needs usernames.
