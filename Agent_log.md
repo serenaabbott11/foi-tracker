@@ -203,3 +203,17 @@ the brief (container *and* setup script) are shipped, per user decision.
     ```
     The `[-]` is correct — startup happens outside a request context.
 - **Trajectory notes:** first live-smoke attempt showed only Werkzeug's dev-server output because a stale `python run.py` from an earlier DP-1 test was still holding port 5002 (that older process didn't have OPS-5's `setup_logging`). Killed it, restarted, saw the startup line — same stale-server pattern noted under DP-1. Worth wrapping smoke tests in a helper that kills any prior server on the port before starting.
+
+### DP-7 — RETENTION, PRIVACY, and DPIA policies
+
+- **Files:**
+  - `docs/RETENTION-POLICY.md` — new. Owner + review cadence, inventory of personal data held, lawful basis, a per-field retention schedule table (requests-PII 3y, requests-record 6y, audit_log 6y with content-redaction after that, backups 14 daily + weekly manual promotion), how the DP-3 sweeper will work end-to-end, manual erasure workflow while DP-2 is pending auth, honesty about backup retention vs UK-GDPR "reasonable steps", open questions for the FOI officer.
+  - `docs/PRIVACY-NOTICE.md` — new, requester-facing. Controller, why we hold data, what we hold in a table, lawful basis, retention in plain terms, who sees the data inside DfT, rights (including what a right-to-erasure request will actually do), security posture, ICO complaint route.
+  - `docs/DPIA.md` — new. ICO-format Data Protection Impact Assessment. Nature/scope/context/purpose, necessity+proportionality, data flow diagram, a **10-risk register** with likelihood/impact/mitigation/residual columns keyed to plan items (R1 unauthorised internal access → AUD-3/DP-4; R2 SQL injection → closed; R3 free-text PII paste; R4 backup theft → DP-6; R5 audit tampering → closed with triggers; R6 disk failure → OPS-3; R7 Gary's desk → OPS-4; R8 SECRET_KEY → closed; R9 cross-team leakage → DP-4; R10 right-to-erasure → DP-2), consultation notes, sign-off placeholders, review cadence.
+- **Why:** `plan.md` DP-7. Auditor gold — the ICO reviewer wants to see the policies alongside the code, and having them under `docs/` (versioned with the code, not on a random SharePoint) is the point.
+- **Design choices:**
+  - Explicitly marked **draft / pending DPO sign-off** on all three. Not overclaiming.
+  - Numbers throughout (3y PII, 6y record, 14 daily backups) are called out as *proposed* — the FOI officer needs to confirm departmental practice. Better to flag than to invent authority.
+  - The risk register in DPIA §4 maps directly to `plan.md` items so an auditor can trace policy → code without a middle layer.
+- **Verification:** doc-only. `python -m pytest` → still 73/73 green.
+- **Trajectory notes:** one-shot; no rework. Left a couple of `**[to be confirmed]**` markers where a real department would fill in DPO email etc.
