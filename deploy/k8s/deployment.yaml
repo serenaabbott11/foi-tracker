@@ -1,0 +1,72 @@
+# ⚠️ Aspirational — not applied. See deploy/k8s/README.md.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: foi-tracker
+  labels:
+    app: foi-tracker
+spec:
+  replicas: 1
+  # SQLite is single-writer; a rolling update would briefly have two pods
+  # trying to write. `Recreate` accepts a short downtime instead.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: foi-tracker
+  template:
+    metadata:
+      labels:
+        app: foi-tracker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: foi-tracker:latest  # replace with the real registry + tag
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5002
+          env:
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: foi-tracker
+                  key: secret-key
+          envFrom:
+            - configMapRef:
+                name: foi-tracker
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: backups
+              mountPath: /backups
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: foi-tracker-data
+        - name: backups
+          persistentVolumeClaim:
+            claimName: foi-tracker-backups

@@ -1,0 +1,12 @@
+# ⚠️ Aspirational — not applied. See deploy/k8s/README.md.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: foi-tracker
+data:
+  FOI_DB: "/data/foi.db"
+  BACKUP_DIR: "/backups"
+  LOG_LEVEL: "INFO"
+  # LOG_DIR intentionally not set — the container logs to stdout so
+  # kubectl logs / a log aggregator picks it up. Setting LOG_DIR would
+  # additionally write to a rotating file inside the pod.

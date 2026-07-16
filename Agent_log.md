@@ -262,3 +262,25 @@ the brief (container *and* setup script) are shipped, per user decision.
   - Unit: `python -m pytest` → 85/85 green.
   - **CI itself not yet run** — the workflow lives in `.github/workflows/`; will fire on the next push to origin.
 - **Trajectory notes:** bandit initially flagged the three f-string SQL sites. All three are provably safe (allowlist composition + `?`-bound values), but bandit doesn't do taint analysis. Adding `# nosec B608` with a written comment is the accepted practice — reviewers can check the rationale is sound.
+
+### OPS-8 — aspirational Kubernetes + Terraform artefacts
+
+- **Files:**
+  - `deploy/README.md` — new landing page pointing at the three sub-dirs (real `systemd/` vs demonstrative `k8s/` and `terraform/`), tagged with a status column.
+  - `deploy/k8s/README.md` — new. Prominent ⚠️ disclaimer. Table of what's in the directory. A **What's missing** section (ingress + TLS, real secret management, backup CronJob, monitoring, NetworkPolicy, resource limits, PDB). A **Why we would not pick K8s for this workload today** section — 6–20 users, SQLite single-writer, GDS-Way anti-overprovisioning.
+  - `deploy/k8s/deployment.yaml`, `service.yaml`, `configmap.yaml`, `pvc.yaml` — minimal manifests. `Recreate` strategy (SQLite is single-writer, no rolling), `runAsNonRoot`, `readinessProbe`+`livenessProbe` on `/api/healthz`, conservative CPU/mem requests/limits, two PVCs (data + backups) both `ReadWriteOnce`.
+  - `deploy/k8s/secret.yaml.example` — placeholder Secret with `PGJhc2U2NC1lbmNvZGVkLXNlY3JldC1oZXJlPg==` (base64 of "<base64-encoded-secret-here>"). Header instructs how to generate a real key and warns against committing the resulting `secret.yaml`.
+  - `deploy/terraform/README.md` — parallel ⚠️ disclaimer + What's-missing + Why-not-yet sections.
+  - `deploy/terraform/main.tf` — single-VM AWS sketch: `aws_vpc` data source (falls back to default), `aws_security_group`, `aws_s3_bucket` + `versioning` + `public_access_block` + `lifecycle_configuration` (14d daily + 8w weekly), IAM role scoped **only** to the backup bucket, EC2 t3.small on Debian, encrypted `aws_ebs_volume` gp3, optional Route 53 A record.
+  - `deploy/terraform/variables.tf` — 8 vars with `default = null` where optional; region defaults to `eu-west-2` (London — most likely for DfT).
+  - `deploy/terraform/outputs.tf` — instance IP, backups bucket name, DNS FQDN (null if no zone provided).
+  - `tests/test_deploy_aspirational.py` — 19 new tests. All files exist; top README references all three sub-dirs; **every artefact contains the word "aspirational" case-insensitively** (parametrised across all 10 files); K8s YAML parses as valid k8s docs with a `kind`; deployment probes `/api/healthz` + has `runAsNonRoot` + `readinessProbe` + `livenessProbe` + `Recreate`; Terraform main declares the expected resources; S3 bucket blocks public access; `secret.yaml.example` does not accidentally contain a real 64-hex key (regex check ignoring comment lines).
+- **Why:** `plan.md` OPS-8. The Day 2 presentation and the ICO audit both benefit from us being able to say "here is where we'd take this next" — but only if the artefacts are labelled honestly as *not yet deployed*.
+- **Design choices:**
+  - **Disclaimer on every file, not just READMEs.** So a future reader who opens `main.tf` directly (grep, IDE) still sees the "not applied" warning before they try `terraform apply`.
+  - **K8s manifests use `Recreate`, not `RollingUpdate`.** SQLite is single-writer; two pods can't share the DB safely. Documented in the deployment.yaml comment.
+  - **Terraform IAM role has one policy: write the backup bucket.** No `AdministratorAccess`, no `*:*` — the aspirational sketch should still model least-privilege.
+  - **`aws_s3_bucket_public_access_block`** included from the start — a common oversight in tutorial examples that leaks buckets publicly.
+  - **A test enforces the disclaimer.** If a future PR adds an artefact without the "aspirational" marker, the test fails.
+- **Verification:** `python -m pytest` → 104/104 green (85 previous + 19 new).
+- **Trajectory notes:** one-shot; no rework. Initial disclaimer-audit `grep -L "Aspirational"` flagged the two READMEs as missing — false positive because grep was case-sensitive and the READMEs use lowercase in their h1s. Fixed the check with `-i` and the test uses `.lower()` so it can't recur.
