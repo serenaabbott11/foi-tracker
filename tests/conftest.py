@@ -1,7 +1,12 @@
 """Shared pytest fixtures.
 
-The `client` fixture builds a fresh SQLite DB with a small, deliberately varied
-sample so search tests can exercise every column and mixed case.
+`anon_client` — Flask test client, DB populated with SAMPLE_ROWS and a
+    `testuser` account. **Not** logged in — for auth tests.
+
+`client` — same fixture, but already logged in as `testuser`. Everything
+    that isn't an auth test uses this.
+
+Each fixture creates its own temp DB and drops it on teardown.
 """
 import os
 import sqlite3
@@ -20,6 +25,9 @@ SAMPLE_ROWS = [
     ("FOI-2026-0005", "The Herald",     "Pavement parking consultation","2026-01-20", "2026-02-17", "Internal review", ""),
 ]
 
+TEST_USERNAME = "testuser"
+TEST_PASSWORD = "testpass"
+
 
 def _reload_app():
     for mod in list(sys.modules):
@@ -28,7 +36,10 @@ def _reload_app():
 
 
 @pytest.fixture
-def client(monkeypatch):
+def anon_client(monkeypatch):
+    """Test client with a fully-populated DB and a `testuser` account — but
+    not signed in. Auth tests use this directly; everything else composes
+    over it via the `client` fixture below."""
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
 
@@ -47,12 +58,20 @@ def client(monkeypatch):
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         SAMPLE_ROWS,
     )
-    # AUD-1 / DP-1: endpoints write to audit_log and expect retention columns.
+    from foi_tracker.audit import now_utc_iso
+    from foi_tracker.auth import hash_password
     from scripts.migrate_add_audit_log import apply as apply_audit_log
     from scripts.migrate_add_retention import apply as apply_retention
+    from scripts.migrate_add_users import apply as apply_users
 
     apply_audit_log(conn)
     apply_retention(conn)
+    apply_users(conn)
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (TEST_USERNAME, hash_password(TEST_PASSWORD), "caseworker", now_utc_iso()),
+    )
     conn.commit()
     conn.close()
 
@@ -63,8 +82,20 @@ def client(monkeypatch):
 
     flask_app.config["TESTING"] = True
     yield flask_app.test_client()
-
     os.remove(path)
+
+
+@pytest.fixture
+def client(anon_client):
+    """Signed-in test client. Most tests want this."""
+    resp = anon_client.post(
+        "/login",
+        data={"username": TEST_USERNAME, "password": TEST_PASSWORD},
+    )
+    assert resp.status_code == 302, (
+        f"fixture login failed: got {resp.status_code}, body={resp.data!r}"
+    )
+    yield anon_client
 
 
 @pytest.fixture

@@ -284,3 +284,65 @@ the brief (container *and* setup script) are shipped, per user decision.
   - **A test enforces the disclaimer.** If a future PR adds an artefact without the "aspirational" marker, the test fails.
 - **Verification:** `python -m pytest` → 104/104 green (85 previous + 19 new).
 - **Trajectory notes:** one-shot; no rework. Initial disclaimer-audit `grep -L "Aspirational"` flagged the two READMEs as missing — false positive because grep was case-sensitive and the READMEs use lowercase in their h1s. Fixed the check with `-i` and the test uses `.lower()` so it can't recur.
+
+---
+
+## 2026-07-16 — Agent_Satyavrat, branch `add_auth`
+
+### Auth: users table, login/logout, endpoint protection, AUD-3 flip, log integration
+
+The largest single change so far — it closes the three plan items that were blocked on Haseeb's login (AUD-3, DP-2 prerequisite, DP-4 prerequisite). Login itself hadn't landed from Haseeb, so we're implementing it here on `add_auth` off `main`.
+
+- **New files:**
+  - `scripts/migrate_add_users.py` — idempotent migration. `users` table with `id, username UNIQUE, password_hash, role DEFAULT 'caseworker', team_id, created_at, updated_at` + a `username` index. Roles: `admin | foi_officer | caseworker`.
+  - `foi_tracker/auth.py` — `User(UserMixin)` model with `is_admin` / `is_foi_officer` properties, `LoginManager` (login_view=`login`), `init_login(app, get_db)` that registers the user_loader + an unauthorized_handler that returns **`401 JSON` for `/api/...`** and **redirects to `/login` otherwise**. Also `authenticate(conn, u, p)` using `werkzeug.security.check_password_hash`, `hash_password(p)`, and `current_actor()` (returns `current_user.username` when authed, `'anonymous'` when not, `'system'` outside a request context).
+  - `foi_tracker/templates/login.html` — minimal GDS-styled sign-in form. POSTs to `login_post` with an `error` slot and a `next` hidden field. Access-audit disclaimer in the hint.
+  - `scripts/create_user.py` — CLI for real user creation. Prompts for password interactively via `getpass` (never in shell history), confirms, validates role. Argparse for `--username`, `--role`, `--team-id`, `--db`.
+  - `tests/test_auth.py` — **20 new tests** covering endpoint protection (7 endpoints: 4 API paths return 401 JSON, `/api/healthz` stays open, `/` redirects to `/login`); login form renders; already-authed user hitting `/login` bounces to `/`; success sets the session and grants API access; success/failure both write the right `audit_log` action; failure messages do not disclose which field was wrong (same body, either case); `next=` refuses to redirect off-site (`//evil.example.com` → `/`); logout clears the session and audits; logout requires being logged in.
+
+- **Modified files:**
+  - `foi_tracker/app.py` —
+    - Imports flask-login (`current_user`, `login_required`, `login_user`, `logout_user`) and our auth module.
+    - `init_login(app, get_db)` wired in *after* `get_db` is defined so the user_loader has its dependency.
+    - `SESSION_COOKIE_SAMESITE='Lax'` + `SESSION_COOKIE_HTTPONLY=True` for baseline session hardening (CSRF-token add is a later hardening pass).
+    - **`@login_required` on `/`, `/api/requests` (both verbs), `/api/requests/<id>` (both verbs), `/api/requests/<id>/audit`, `/api/audit`, `/api/audit.csv`.**
+    - `/api/healthz` deliberately **not** login-required (container probes / external monitors need it).
+    - AUD-3 flip: **removed the `_ACTOR_UNKNOWN = "unknown"` sentinel** and replaced all three `write_audit(..., actor=_ACTOR_UNKNOWN, ...)` sites with `actor=current_actor()`. The comment referencing "sentinel until HASEEB's login lands" is gone.
+    - New routes: `GET /login` (renders form, bounces to `/` if already authed), `POST /login` (authenticate → `login_user()` on success + `action='login'` audit, else `action='login_failed'` audit with attempted-username in `reason`; both cases with `actor_ip=request.remote_addr`), `POST /logout` (`login_required`; audits `action='logout'`, then `logout_user()`). `_safe_next()` helper rejects `//foo` and `scheme://foo` targets.
+  - `foi_tracker/logging_config.py` — `_RequestIDFilter` now also sets `record.user` from `current_user.username` when authenticated, `'anonymous'` when not, `'-'` outside a request context. `LOG_FORMAT` bumped to `... [%(request_id)s %(user)s] %(message)s`. Every log line now carries who did it.
+  - `foi_tracker/templates/app.html` — header adds a **"Signed in as \<username\>"** display and a **Log out** POST-form button, both after the "+ New request" button; CSS additions for the header/user styling.
+  - `scripts/seed.py` — imports `apply_users` + `hash_password` + `now_utc_iso`; calls `apply_users(conn)` after the other two migrations; seeds three demo users via `INSERT OR IGNORE` (`admin/adminpass`, `caseworker1/caseworkerpass`, `foi_officer/foipass`); the CLI print now mentions how many users were seeded plus the demo credentials so a first-time dev sees them.
+  - `requirements.txt` — added `flask-login`.
+  - `tests/conftest.py` — restructured: **`anon_client`** does all setup + creates a `testuser` account but does **not** log in; **`client`** composes over `anon_client` by POSTing `/login`. Existing tests using `client` continue to pass unchanged. `TEST_USERNAME` / `TEST_PASSWORD` exported for `test_auth.py`.
+  - `tests/test_security.py` — inline fixture updated: applies `apply_users`, seeds a `testuser`, logs in before yielding. (`test_security.py` still has its own fixture — kept in place per "don't delete another agent's setup" convention; behaviour parity with conftest.)
+  - `tests/test_audit_write.py` — fixture parallels the above; `_audit_rows()` **now filters `entity_type='request'`** so the fixture's login row doesn't inflate the per-test counts; **`actor` assertions flipped from `'unknown'` to `'testuser'`** (AUD-3 evidence).
+  - `tests/test_retention_schema.py` — same fixture update.
+  - `tests/test_logging.py::test_log_format_produces_expected_shape` — new format string with the `user` field asserted.
+
+- **Why:**
+  - `plan.md` §7 open question #1 (HASEEB's users-table schema) — resolved by implementing it ourselves rather than waiting.
+  - `plan.md` §AUD-3 (audit actor flip) — was gated on login; now done.
+  - `plan.md` §OPS-5 has been extended to include `user` in the log format — an ICO auditor tracing an incident by log entries alone can now see *who*, not just *what*.
+  - Gap-analysis PR #8 flagged auth as item #1 (BLOCKING). This closes that gap.
+
+- **Design choices worth noting:**
+  - **`current_actor()` centralised**, not sprinkled. If AUD-3 ever needs to change again (e.g. for service accounts, API tokens) the change is a single function.
+  - **Login/logout are their own audit actions** (`entity_type='user'`) — kept separate from request-scoped rows so the auditor can filter `SELECT * FROM audit_log WHERE action IN ('login','login_failed','logout')` for the security event trail cleanly.
+  - **`login_failed` never contains the password** — only the attempted username, truncated to 80 chars to guard against giant-payload log spam.
+  - **Same failure message** for wrong-password vs unknown-user (tested). Standard practice — don't help an enumerator confirm which usernames exist.
+  - **`_safe_next()` refuses off-site redirects** (`//evil.example.com`, `https://…`). Tested.
+  - **`SESSION_COOKIE_SAMESITE='Lax'`** as the CSRF-lite defence for now. Full CSRF tokens (Flask-WTF) would be the next hardening pass — documented as a follow-up rather than shipped now.
+  - **Passwords hashed with `werkzeug.security.generate_password_hash`** — no extra dep, uses `scrypt` by default in current werkzeug. Migrating to argon2 later means one call site (`hash_password()`) plus a rehash-on-login pass.
+  - **`/api/healthz` intentionally auth-free** — external monitors and container HEALTHCHECK must work without credentials.
+
+- **Verification:**
+  - Unit: `python -m pytest` → **100/100 green** (80 previous, adjusted + 20 new in `test_auth.py`).
+  - Live smoke pending — will do after commit + push, in the SPA browser.
+
+- **Trajectory notes:**
+  - Two rework loops. First: after adding `@login_required` and updating conftest, `test_security.py`'s tests failed — I hadn't realised the file had its own inline fixture (a merge-conflict resolution in a previous session that put it back). Added the same treatment to that fixture. Second: audit-write tests started reporting wrong row counts because the fixture's login POST adds a `login` audit row on top. Filtered `_audit_rows()` by `entity_type='request'`.
+  - Left **for the next slice**:
+    - CSRF tokens (Flask-WTF) on the login/logout forms.
+    - Rate-limiting login attempts (Flask-Limiter, IP-scoped).
+    - Password rotation / password-change route.
+    - Admin-only viewing of `/api/audit` (only role check that's still missing; currently any authed user gets it).

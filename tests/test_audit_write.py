@@ -35,11 +35,20 @@ def client_and_db(monkeypatch):
         "VALUES ('FOI-TEST-001', 'A. Tester', 'Bridge inspections', "
         "'2026-01-01', '2026-01-29', 'Received', '')"
     )
+    from foi_tracker.audit import now_utc_iso
+    from foi_tracker.auth import hash_password
     from scripts.migrate_add_audit_log import apply as apply_audit_log
     from scripts.migrate_add_retention import apply as apply_retention
+    from scripts.migrate_add_users import apply as apply_users
 
     apply_audit_log(conn)
     apply_retention(conn)
+    apply_users(conn)
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("testuser", hash_password("testpass"), "caseworker", now_utc_iso()),
+    )
     conn.commit()
     conn.close()
 
@@ -49,15 +58,21 @@ def client_and_db(monkeypatch):
     from foi_tracker.app import app as flask_app
 
     flask_app.config["TESTING"] = True
-    yield flask_app.test_client(), path
+    tc = flask_app.test_client()
+    tc.post("/login", data={"username": "testuser", "password": "testpass"})
+    yield tc, path
 
     os.remove(path)
 
 
 def _audit_rows(db_path):
+    """Only request-scoped audit rows. Excludes login/logout rows added by
+    the fixture, so per-test row counts stay meaningful."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT * FROM audit_log ORDER BY id").fetchall()
+    rows = conn.execute(
+        "SELECT * FROM audit_log WHERE entity_type = 'request' ORDER BY id"
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -82,7 +97,7 @@ def test_create_writes_audit_row(client_and_db):
     assert r["action"] == "create"
     assert r["entity_type"] == "request"
     assert r["entity_id"] == str(new_id)
-    assert r["actor"] == "unknown"
+    assert r["actor"] == "testuser"  # AUD-3 now populates actor from current_user
     assert r["before_json"] is None
     after = json.loads(r["after_json"])
     assert after["ref"] == "FOI-AUD-1"
@@ -100,7 +115,7 @@ def test_view_writes_audit_row(client_and_db):
     assert r["action"] == "view"
     assert r["entity_type"] == "request"
     assert r["entity_id"] == "1"
-    assert r["actor"] == "unknown"
+    assert r["actor"] == "testuser"  # AUD-3 now populates actor from current_user
     assert r["before_json"] is None
     assert r["after_json"] is None
 
