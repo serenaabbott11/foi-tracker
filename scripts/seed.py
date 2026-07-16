@@ -30,9 +30,10 @@ DEFAULT_DB_PATH = str(ROOT / "data" / "foi.db")
 # Demo users — clearly insecure passwords for hackathon / local dev only.
 # Real deployments create users via `python -m scripts.create_user`.
 DEMO_USERS = [
-    ("admin",       "adminpass",       "admin"),
-    ("caseworker1", "caseworkerpass",  "caseworker"),
-    ("foi_officer", "foipass",         "foi_officer"),
+    ("admin",      "adminpass", "admin"),
+    ("SerenaA",    "password",  "caseworker"),
+    ("Haseeb",     "password",  "caseworker"),
+    ("SatyavratK", "password",  "caseworker"),
 ]
 
 SAMPLE = [

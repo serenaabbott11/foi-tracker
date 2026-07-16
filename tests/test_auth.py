@@ -59,7 +59,8 @@ def test_healthz_does_not_require_login(anon_client):
 def test_index_redirects_unauthenticated_to_login(anon_client):
     resp = anon_client.get("/")
     assert resp.status_code == 302
-    assert "/login" in resp.headers.get("Location", "")
+    # Relative redirect — "login" not "/login" so it works under any proxy prefix.
+    assert "login" in resp.headers.get("Location", "")
 
 
 # --- login form -------------------------------------------------------------
@@ -74,8 +75,9 @@ def test_login_page_renders(anon_client):
 def test_login_page_when_already_authed_redirects_to_index(client):
     resp = client.get("/login")
     assert resp.status_code == 302
-    # follow to `/` (also 302 to /login if not authed, 200 if authed).
-    assert resp.headers.get("Location", "").endswith("/")
+    # Relative "." from /login resolves to the app root under any proxy prefix.
+    loc = resp.headers.get("Location", "")
+    assert loc in (".", "/") or loc.endswith("/")
 
 
 # --- login POST ------------------------------------------------------------
@@ -142,8 +144,11 @@ def test_login_wrong_password_does_not_leak_which_field_was_wrong(anon_client):
     assert resp1.data == resp2.data
 
 
-def test_login_next_param_only_allows_same_site_paths(anon_client):
-    """A malicious `next=//evil.example.com` must not send the user off-site."""
+def test_login_next_param_is_ignored_no_open_redirect(anon_client):
+    """A malicious `next=//evil.example.com` must not send the user off-site.
+
+    The `next` field is ignored entirely — login always redirects to ".".
+    """
     resp = anon_client.post(
         "/login",
         data={
@@ -155,7 +160,8 @@ def test_login_next_param_only_allows_same_site_paths(anon_client):
     assert resp.status_code == 302
     loc = resp.headers.get("Location", "")
     assert "evil.example.com" not in loc
-    assert loc.endswith("/")
+    # Always a relative redirect — never an absolute URL or off-site path.
+    assert "://" not in loc and not loc.startswith("//")
 
 
 # --- logout ---------------------------------------------------------------
@@ -180,7 +186,8 @@ def test_logout_requires_login(anon_client):
     resp = anon_client.post("/logout")
     # Not logged in -> unauthorized handler kicks in. Non-API path, so redirect.
     assert resp.status_code == 302
-    assert "/login" in resp.headers.get("Location", "")
+    # Relative redirect — "login" not "/login" so it works under any proxy prefix.
+    assert "login" in resp.headers.get("Location", "")
 
 
 # --- AUD-3: audit rows for actions carry the real username -----------------

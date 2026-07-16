@@ -5,7 +5,7 @@ Password hashing uses werkzeug.security (bundled with Flask — no extra dep).
 import sqlite3
 from typing import Callable, Optional
 
-from flask import has_request_context, jsonify, redirect, request, url_for
+from flask import has_request_context, jsonify, redirect, request
 from flask_login import LoginManager, UserMixin, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -62,10 +62,16 @@ def init_login(app, get_db: Callable[[], sqlite3.Connection]) -> None:
 
     @login_manager.unauthorized_handler
     def unauthorized():
-        """Return JSON 401 for the API surface; redirect to /login for the SPA shell."""
+        """Return JSON 401 for the API surface; redirect to /login for the SPA shell.
+
+        Uses a **relative** redirect ("login") — the SPA lives behind a proxy
+        prefix in some environments (`/proxy/5002/`), so absolute `/login`
+        routes to the wrong place. From `/` the browser resolves `login` to
+        the correct proxied path.
+        """
         if request.path.startswith("/api/"):
             return jsonify({"error": "authentication required"}), 401
-        return redirect(url_for("login", next=request.path))
+        return redirect("login")
 
 
 def authenticate(conn: sqlite3.Connection, username: str, password: str) -> Optional[User]:

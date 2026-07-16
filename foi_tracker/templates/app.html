@@ -36,8 +36,10 @@
     <h1>FOI Deadline Tracker</h1>
     <div class="header-right">
       <span class="user">Signed in as <strong>{{ current_user.username }}</strong></span>
+      {% if is_admin %}<a href="audit" style="background:#f3f2f1;color:#0b0c0c;border:1px solid #b1b4b6;padding:.6rem 1.2rem;font-size:1rem;text-decoration:none;">Audit Log</a>{% endif %}
       <button id="new-btn">+ New request</button>
-      <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
+      <!-- Relative action so the logout POST works under any proxy prefix. -->
+      <form method="post" action="logout" style="display:inline;">
         <button type="submit" class="secondary">Log out</button>
       </form>
     </div>
@@ -97,8 +99,7 @@
   <div id="history-panel" class="panel hidden">
     <h2>History — request <span id="h-ref"></span></h2>
     <p style="color:#505a5f; font-size:.9rem; margin-top:-.5rem;">
-      Every view and every change of this record. Auditor-ready — the actor
-      column will show usernames once login lands.
+      Every view and every change of this record.
     </p>
     <table>
       <thead>
@@ -115,6 +116,7 @@
       <button class="secondary" onclick="hidePanels()">Close</button>
     </div>
   </div>
+
 
   <script>
     const TODAY = "{{ today }}";

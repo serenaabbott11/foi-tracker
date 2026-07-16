@@ -27,6 +27,8 @@ SAMPLE_ROWS = [
 
 TEST_USERNAME = "testuser"
 TEST_PASSWORD = "testpass"
+ADMIN_USERNAME = "testadmin"
+ADMIN_PASSWORD = "adminpass"
 
 
 def _reload_app():
@@ -72,6 +74,11 @@ def anon_client(monkeypatch):
         "VALUES (?, ?, ?, ?)",
         (TEST_USERNAME, hash_password(TEST_PASSWORD), "caseworker", now_utc_iso()),
     )
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (ADMIN_USERNAME, hash_password(ADMIN_PASSWORD), "admin", now_utc_iso()),
+    )
     conn.commit()
     conn.close()
 
@@ -94,6 +101,19 @@ def client(anon_client):
     )
     assert resp.status_code == 302, (
         f"fixture login failed: got {resp.status_code}, body={resp.data!r}"
+    )
+    yield anon_client
+
+
+@pytest.fixture
+def admin_client(anon_client):
+    """Signed-in test client with admin role. Use for admin-only endpoint tests."""
+    resp = anon_client.post(
+        "/login",
+        data={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+    )
+    assert resp.status_code == 302, (
+        f"admin fixture login failed: got {resp.status_code}, body={resp.data!r}"
     )
     yield anon_client
 

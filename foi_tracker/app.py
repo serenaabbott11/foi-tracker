@@ -4,6 +4,7 @@ import logging
 import os
 import sqlite3
 from datetime import date, datetime
+from functools import wraps
 from pathlib import Path
 
 from flask import Flask, Response, g, jsonify, redirect, render_template, request, url_for
@@ -55,6 +56,17 @@ def get_db():
     return conn
 
 
+def admin_required(f):
+    """Decorator: requires login AND admin role. Returns 403 JSON for non-admins."""
+    @wraps(f)
+    @login_required
+    def decorated(*args, **kwargs):
+        if not current_user.is_admin:
+            return jsonify({"error": "admin access required"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
 # Wire Flask-Login now that get_db exists. Registers the user_loader and the
 # unauthorized-handler that returns 401 JSON for /api/... and redirects
 # elsewhere to /login.
@@ -73,7 +85,14 @@ def index():
         "app.html",
         statuses=STATUSES,
         today=date.today().isoformat(),
+        is_admin=current_user.is_admin,
     )
+
+
+@app.get("/audit")
+@admin_required
+def audit_dashboard():
+    return render_template("audit.html")
 
 
 @app.get("/api/healthz")
@@ -234,14 +253,9 @@ def _audit_query(args) -> tuple[str, list]:
 
 
 @app.get("/api/audit")
-@login_required
+@admin_required
 def audit_index():
-    """AUD-5: cross-request audit view.
-
-    TODO(AUD-3 / DP-4): once login + roles land, restrict this to
-    'admin' / 'foi_officer'. Today it is open — do not deploy to a
-    public network until then.
-    """
+    """AUD-5: cross-request audit view. Admin-only."""
     where, params = _audit_query(request.args)
     try:
         limit = min(int(request.args.get("limit", "200")), 1000)
@@ -260,10 +274,9 @@ def audit_index():
 
 
 @app.get("/api/audit.csv")
-@login_required
+@admin_required
 def audit_csv():
-    """AUD-5: CSV export for auditors. Same filtering as /api/audit."""
-    # TODO(AUD-3 / DP-4): admin-only once auth lands.
+    """AUD-5: CSV export for auditors. Same filtering as /api/audit. Admin-only."""
     import csv
     import io
     from datetime import datetime, timezone
@@ -340,26 +353,19 @@ def update_request(req_id):
 
 
 # -------- Authentication --------------------------------------------------
-
-
-def _safe_next(target: str) -> str:
-    """Only allow relative same-site redirects — no `//foo` or `https://foo`."""
-    if not target or target.startswith("//") or "://" in target:
-        return url_for("index")
-    if not target.startswith("/"):
-        return url_for("index")
-    return target
+#
+# Relative redirects only — the app runs behind a proxy prefix (e.g.
+# `/proxy/5002/`) in some environments, so absolute paths like `/login` route
+# to the wrong place. `redirect(".")` from `/login` resolves to the app root
+# regardless of prefix. See foi_tracker/CLAUDE.md rule on relative fetch URLs.
 
 
 @app.get("/login")
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for("index"))
-    return render_template(
-        "login.html",
-        error=None,
-        next=request.args.get("next", ""),
-    )
+        # Relative — from /login this resolves to the app root under any prefix.
+        return redirect(".")
+    return render_template("login.html", error=None)
 
 
 @app.post("/login")
@@ -388,7 +394,6 @@ def login_post():
                 render_template(
                     "login.html",
                     error="Username or password not recognised.",
-                    next=request.form.get("next", ""),
                 ),
                 401,
             )
@@ -404,7 +409,8 @@ def login_post():
         )
         db.commit()
         logger.info("login: %s", user.username)
-        return redirect(_safe_next(request.form.get("next", "")))
+        # Relative — from /login resolves to app root under any prefix.
+        return redirect(".")
     finally:
         db.close()
 
@@ -429,4 +435,5 @@ def logout():
         db.close()
     logout_user()
     logger.info("logout: %s", username)
-    return redirect(url_for("login"))
+    # Relative — from /logout resolves to /login (same directory, sibling path).
+    return redirect("login")

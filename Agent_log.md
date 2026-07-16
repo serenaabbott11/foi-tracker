@@ -345,4 +345,28 @@ The largest single change so far — it closes the three plan items that were bl
     - CSRF tokens (Flask-WTF) on the login/logout forms.
     - Rate-limiting login attempts (Flask-Limiter, IP-scoped).
     - Password rotation / password-change route.
-    - Admin-only viewing of `/api/audit` (only role check that's still missing; currently any authed user gets it).
+
+---
+
+## 2026-07-16 — Agent_Satyavrat, branch `add_auth` (continued)
+
+### Fix: proxy-aware relative redirects after login/logout
+
+- **Files:** `foi_tracker/app.py`, `foi_tracker/auth.py`, `foi_tracker/templates/app.html`, `foi_tracker/templates/login.html`
+- **What:** Replaced all `url_for()`-generated and absolute-path redirects with relative ones. Login success → `redirect(".")`, logout → `redirect("login")`, unauthorized handler → `redirect("login")`, logout form action → `"logout"`, login form action removed (posts to current URL). Removed `_safe_next()` and the `next=` hidden field entirely — always redirecting to `.` eliminates the open-redirect surface.
+- **Why:** After login, the app was redirecting to the bare code-lab URL instead of the app root. `url_for()` generates absolute paths (e.g. `/login`) which the proxy strips the prefix from; relative URLs let the browser resolve the correct proxied path.
+- **Tests:** 4 tests in `test_auth.py` updated to assert relative Location headers (`"login"` not `"/login"`); `test_login_next_param_only_allows_same_site_paths` renamed and rewritten to assert no open-redirect without relying on the now-removed `next=` field.
+- **Trajectory notes:** Changes were already complete in the working tree from the crashed session; only the 4 test assertions needed updating to match.
+
+### Audit dashboard: admin-only page + role restriction + new seed users
+
+- **Files:**
+  - `foi_tracker/app.py` — added `admin_required` decorator (wraps `@login_required`, adds 403 for non-admins); new `GET /audit` route (admin_required) rendering `audit.html`; `/api/audit` and `/api/audit.csv` now use `@admin_required` instead of `@login_required`; TODO comments removed; `is_admin` passed to `app.html` template.
+  - `foi_tracker/templates/audit.html` — new standalone page. GDS styling, filter bar (action/actor/from/to), colour-coded event table (When/Who/IP/Action/Entity/Details), Download CSV link. No `<base href>` — browser uses the document directory (`/proxy/5002/`) as base so relative fetch URLs resolve correctly.
+  - `foi_tracker/templates/app.html` — "Audit Log" rendered as an `<a>` link for admin users only; audit panel div and its JS removed; unused audit CSS removed.
+  - `scripts/seed.py` — DEMO_USERS updated to `admin/adminpass` + `SerenaA/password`, `Haseeb/password`, `SatyavratK/password` (all caseworker). Three new users also inserted directly into the live DB.
+  - `tests/conftest.py` — added `ADMIN_USERNAME/ADMIN_PASSWORD`; `anon_client` seeds an admin test user; new `admin_client` fixture logs in as that admin.
+  - `tests/test_audit_viewer.py` — cross-request audit tests switched to `admin_client`; two new tests assert caseworkers get 403 on both endpoints.
+- **Why:** ICO audit value — the audit trail is only visible to admin, not every caseworker. Separate page is cleaner than a slide-in panel for a dense table of events.
+- **Fix during session:** Initial `<base href="../">` in `audit.html` caused 400 errors — from `/proxy/5002/audit`, `../` resolves to `/proxy/` (dropping the port segment). Removed the base href; browser default correctly resolves relative URLs from the document's own directory.
+- **Verification:** `python -m pytest` → 102/102 green. Admin sees "Audit Log" link → navigates to `/audit` with working filters and CSV download; caseworkers (`SerenaA`, `Haseeb`, `SatyavratK`) see no link and get 403 on direct access.
