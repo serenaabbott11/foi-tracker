@@ -6,7 +6,7 @@ import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
-from flask import Flask, g, jsonify, render_template, request
+from flask import Flask, Response, g, jsonify, render_template, request
 
 from foi_tracker.audit import now_utc_iso, write_audit
 from foi_tracker.deadlines import calculate_deadline
@@ -159,6 +159,119 @@ def get_request(req_id):
     )
     db.commit()
     return jsonify(dict(row))
+
+
+@app.get("/api/requests/<int:req_id>/audit")
+def request_audit(req_id):
+    """AUD-5: per-request audit history — the ICO auditor's core question."""
+    db = get_db()
+    exists = db.execute(
+        "SELECT id FROM requests WHERE id = ?", (req_id,)
+    ).fetchone()
+    if exists is None:
+        return jsonify({"error": "not found"}), 404
+
+    rows = db.execute(
+        "SELECT id, timestamp, actor, actor_ip, action, "
+        "       entity_type, entity_id, before_json, after_json, reason "
+        "FROM audit_log "
+        "WHERE entity_type = 'request' AND entity_id = ? "
+        "ORDER BY id DESC",
+        (str(req_id),),
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+# Columns allowed as filter fields on /api/audit — hardcoded allowlist,
+# never user input, so f-string composition below is safe.
+_AUDIT_FILTER_COLUMNS = {
+    "action": "action",
+    "actor": "actor",
+    "entity_type": "entity_type",
+    "entity_id": "entity_id",
+}
+
+
+def _audit_query(args) -> tuple[str, list]:
+    """Build a WHERE clause + params from request.args for the audit views.
+
+    Accepts: action, actor, entity_type, entity_id, from (>= ISO), to (<= ISO).
+    Returns (sql_fragment, params). Fragment is empty or starts with WHERE.
+    """
+    clauses: list[str] = []
+    params: list = []
+    for arg_name, col in _AUDIT_FILTER_COLUMNS.items():
+        val = args.get(arg_name)
+        if val:
+            clauses.append(f"{col} = ?")
+            params.append(val)
+    if args.get("from"):
+        clauses.append("timestamp >= ?")
+        params.append(args["from"])
+    if args.get("to"):
+        clauses.append("timestamp <= ?")
+        params.append(args["to"])
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    return where, params
+
+
+@app.get("/api/audit")
+def audit_index():
+    """AUD-5: cross-request audit view.
+
+    TODO(AUD-3 / DP-4): once login + roles land, restrict this to
+    'admin' / 'foi_officer'. Today it is open — do not deploy to a
+    public network until then.
+    """
+    where, params = _audit_query(request.args)
+    try:
+        limit = min(int(request.args.get("limit", "200")), 1000)
+    except ValueError:
+        limit = 200
+
+    sql = f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+
+    db = get_db()
+    rows = db.execute(sql, params).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.get("/api/audit.csv")
+def audit_csv():
+    """AUD-5: CSV export for auditors. Same filtering as /api/audit."""
+    # TODO(AUD-3 / DP-4): admin-only once auth lands.
+    import csv
+    import io
+    from datetime import datetime, timezone
+
+    where, params = _audit_query(request.args)
+    sql = f"SELECT * FROM audit_log {where} ORDER BY id"
+
+    db = get_db()
+    rows = db.execute(sql, params).fetchall()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "id", "timestamp", "actor", "actor_ip", "action",
+        "entity_type", "entity_id", "before_json", "after_json", "reason",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["id"], r["timestamp"], r["actor"], r["actor_ip"], r["action"],
+            r["entity_type"], r["entity_id"],
+            r["before_json"] or "", r["after_json"] or "", r["reason"] or "",
+        ])
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="audit-{stamp}.csv"',
+        },
+    )
 
 
 @app.post("/api/requests/<int:req_id>")

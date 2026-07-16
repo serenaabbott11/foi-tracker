@@ -78,7 +78,30 @@
     <label>Notes <textarea id="d-notes" rows="4"></textarea></label>
     <div style="margin-top: 1rem;">
       <button id="detail-save">Save</button>
+      <button id="detail-history" class="secondary">View history</button>
       <button class="secondary" onclick="hidePanels()">Cancel</button>
+    </div>
+  </div>
+
+  <div id="history-panel" class="panel hidden">
+    <h2>History — request <span id="h-ref"></span></h2>
+    <p style="color:#505a5f; font-size:.9rem; margin-top:-.5rem;">
+      Every view and every change of this record. Auditor-ready — the actor
+      column will show usernames once login lands.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>When (UTC)</th>
+          <th>Who</th>
+          <th>Action</th>
+          <th>Change</th>
+        </tr>
+      </thead>
+      <tbody id="h-rows"></tbody>
+    </table>
+    <div style="margin-top: 1rem;">
+      <button class="secondary" onclick="hidePanels()">Close</button>
     </div>
   </div>
 
@@ -145,8 +168,56 @@
         hidePanels();
         loadList($("search").value);
       };
+      $("detail-history").onclick = () => showHistory(id, r.ref);
       hidePanels();
       $("detail-panel").classList.remove("hidden");
+    }
+
+    // AUD-5: per-request audit history panel. Every field going into the DOM
+    // is escaped with esc() — see foi_tracker/CLAUDE.md security rules.
+    async function showHistory(id, ref) {
+      const rows = await fetch(`api/requests/${id}/audit`).then(r => r.json());
+      $("h-ref").textContent = ref ?? String(id);
+      const tbody = $("h-rows");
+      tbody.innerHTML = "";
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#505a5f; padding:1rem;">No audit rows yet.</td></tr>`;
+      }
+      for (const r of rows) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${esc(r.timestamp)}</td>
+          <td>${esc(r.actor)}</td>
+          <td>${esc(r.action)}</td>
+          <td>${renderChange(r)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+      hidePanels();
+      $("history-panel").classList.remove("hidden");
+    }
+
+    function renderChange(r) {
+      if (r.action === "create") return "created";
+      if (r.action === "view")   return "viewed";
+      if (r.action === "update") {
+        try {
+          const before = r.before_json ? JSON.parse(r.before_json) : {};
+          const after  = r.after_json  ? JSON.parse(r.after_json)  : {};
+          const parts = [];
+          for (const k of Object.keys(after)) {
+            if (before[k] !== after[k]) {
+              const b = before[k] == null ? "∅" : before[k];
+              const a = after[k]  == null ? "∅" : after[k];
+              parts.push(`<strong>${esc(k)}</strong>: ${esc(b)} → ${esc(a)}`);
+            }
+          }
+          return parts.length ? parts.join("<br>") : "(no field changes)";
+        } catch (_) {
+          return esc(r.action);
+        }
+      }
+      return esc(r.reason ?? r.action);
     }
 
     $("new-btn").addEventListener("click", () => {

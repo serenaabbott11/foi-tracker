@@ -217,3 +217,28 @@ the brief (container *and* setup script) are shipped, per user decision.
   - The risk register in DPIA §4 maps directly to `plan.md` items so an auditor can trace policy → code without a middle layer.
 - **Verification:** doc-only. `python -m pytest` → still 73/73 green.
 - **Trajectory notes:** one-shot; no rework. Left a couple of `**[to be confirmed]**` markers where a real department would fill in DPO email etc.
+
+### AUD-5 — audit viewer API + CSV export + SPA History panel
+
+- **Files:**
+  - `foi_tracker/app.py` — three new endpoints:
+    - `GET /api/requests/<id>/audit` — returns the audit history for one request, newest first, 404 if the request doesn't exist. Returns `entity_type`/`entity_id` alongside `before_json`/`after_json` for consumers that need them.
+    - `GET /api/audit` — cross-request view. Supports `?action=`, `?actor=`, `?entity_type=`, `?entity_id=`, `?from=`, `?to=`, `?limit=` filters. Filter column names are an **allowlist** so the f-string composition is safe; values are always parameterised. Result limit clamped to `1000` and gracefully ignores a bad `limit=notanumber`.
+    - `GET /api/audit.csv` — same filtering, streams the same rows as RFC-4180 CSV, timestamped `attachment; filename="audit-YYYYMMDDZ.csv"`.
+    - Both cross-request endpoints carry a `TODO(AUD-3 / DP-4)` comment: restrict to admin / foi_officer once auth lands.
+  - `foi_tracker/templates/app.html` — added a **History** panel:
+    - New `View history` button on the detail panel (secondary style, no colour conflict with Save).
+    - New `#history-panel` div with a table (When | Who | Action | Change).
+    - `showHistory(id, ref)` fetches `api/requests/${id}/audit` and renders rows through `esc()` for every field per `foi_tracker/CLAUDE.md` §"Rule 3".
+    - `renderChange(r)` produces a human diff for `update` rows (`<strong>notes</strong>: ∅ → hello`) and short labels for `view`, `create`, and other actions. Null/empty values render as `∅` for clarity.
+  - `tests/test_audit_viewer.py` — 12 new tests. Per-request endpoint returns only that request's rows; ordered newest first; 404 for missing requests; before/after diff survives to the API. Cross-request endpoint returns recent rows in DESC order; filters by action; filters by entity; caps overly-large `limit`; tolerates a garbage `limit`. CSV endpoint returns the right MIME type + attachment header + 10 expected columns; filter applies to CSV output; **CSV round-trip preserves a payload containing both commas and quotes** (parsed via `json.loads` to defeat the JSON `\"` escaping — reliable equality check, not substring).
+- **Why:** `plan.md` AUD-5. Concrete answer to the ICO's "who accessed this record?" question: caseworker opens a request → clicks *View history* → sees every view/update, timestamped, with a plain-English diff. CSV export is the auditor's takeaway.
+- **Design choices:**
+  - Filter columns are a hardcoded **allowlist dict** (`_AUDIT_FILTER_COLUMNS`), never user input, so composing `WHERE col = ?` via f-string is safe. Values are always `?`-parameterised.
+  - CSV column order is fixed and stable so a downstream spreadsheet reader doesn't break when we add columns later.
+  - No pagination on `/api/audit` yet — a hard `LIMIT 1000` clamp is enough for the scale we're at. Full pagination is a Day-3 item.
+  - History panel uses **`esc()` on every DOM write**. `renderChange` composes small HTML fragments (`<strong>…</strong>`) but only around already-escaped values — never inserts un-escaped user data into innerHTML.
+- **Verification:**
+  - Unit: `python -m pytest` → 85/85 green (73 previous + 12 new).
+  - The two-step fix: initial run flagged that the per-request endpoint didn't `SELECT entity_id` (KeyError in the test); the CSV special-character test was doing a naive substring lookup on a JSON-escaped string (`\"`). Fixed by selecting the extra columns and by json-parsing the CSV cell before comparison.
+- **Trajectory notes:** one iteration. Endpoints landed clean; test failures diagnosed and fixed in one pass each.
