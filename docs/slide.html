@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>From prototype to production — verify Claude on regulatory logic</title>
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --muted: #5a5a5a;
+    --accent: #b8003e;
+    --bg: #fafaf7;
+    --rule: #d9d5cc;
+  }
+  html, body { margin: 0; padding: 0; background: #eeeae1; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 2rem;
+    box-sizing: border-box;
+  }
+  .slide {
+    background: var(--bg);
+    width: min(1200px, 100%);
+    aspect-ratio: 16 / 9;
+    padding: 4rem 5rem;
+    box-sizing: border-box;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  h1 {
+    font-size: 2.4rem;
+    line-height: 1.15;
+    margin: 0 0 0.4rem;
+    letter-spacing: -0.01em;
+  }
+  h1 .accent { color: var(--accent); }
+  .lede {
+    font-size: 1.15rem;
+    color: var(--muted);
+    font-style: italic;
+    margin: 0 0 1.6rem;
+    padding-bottom: 1.2rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  li {
+    font-size: 1.1rem;
+    line-height: 1.5;
+    padding-left: 1.6rem;
+    position: relative;
+  }
+  li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.7em;
+    width: 0.7rem;
+    height: 2px;
+    background: var(--accent);
+  }
+  li strong { color: var(--ink); }
+  .example {
+    background: #f3efe4;
+    border-left: 3px solid var(--accent);
+    padding: 0.9rem 1.2rem;
+    border-radius: 3px;
+    margin-left: -1.6rem;
+    padding-left: 1.4rem;
+  }
+  .example::before { display: none; }
+  .takeaway {
+    margin-top: 1.5rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--rule);
+    font-size: 1.15rem;
+    color: var(--ink);
+  }
+  .takeaway strong { color: var(--accent); }
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.95em;
+    background: #ece8dc;
+    padding: 0.05em 0.35em;
+    border-radius: 3px;
+  }
+  @media (max-width: 800px) {
+    .slide { aspect-ratio: auto; padding: 2rem; }
+    h1 { font-size: 1.7rem; }
+    li, .lede, .takeaway { font-size: 1rem; }
+  }
+</style>
+</head>
+<body>
+  <main class="slide">
+    <div>
+      <h1>Prototype <span class="accent">&rarr;</span> production</h1>
+
+      <ul>
+        <li>When going from prototype to production, it's important to find resources that will be useful — and to <strong>not trust Claude when dealing with business rules around regulations</strong>.</li>
+        <li>Example: finding a public API, like the <strong>bank holidays one</strong>.</li>
+        <li>When asking Claude, it makes assumptions — for example only choosing the <strong>England &amp; Wales</strong> bank holidays, when the regulations include <strong>all four nations</strong>.</li>
+        <li>Trusting Claude without doing proper research and checks can mean <strong>breaking regulations</strong>.</li>
+        <li>Particularly important for <strong>government projects</strong>.</li>
+      </ul>
+    </div>
+  </main>
+</body>
+</html>
