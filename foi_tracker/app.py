@@ -92,8 +92,11 @@ def list_requests():
     if q:
         pattern = f"%{q.lower()}%"
         where = " OR ".join(f"LOWER({col}) LIKE ?" for col in SEARCHABLE_COLUMNS)
+        # nosec B608: `where` is composed from SEARCHABLE_COLUMNS (a hardcoded
+        # allowlist above) — no user input reaches the SQL text. User values
+        # go through `?` parameters only.
         rows = db.execute(
-            f"SELECT * FROM requests WHERE {where} ORDER BY deadline",
+            f"SELECT * FROM requests WHERE {where} ORDER BY deadline",  # nosec B608
             [pattern] * len(SEARCHABLE_COLUMNS),
         ).fetchall()
     else:
@@ -229,7 +232,10 @@ def audit_index():
     except ValueError:
         limit = 200
 
-    sql = f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ?"
+    # nosec B608: `where` comes from _audit_query() which only composes
+    # column names drawn from the _AUDIT_FILTER_COLUMNS allowlist. All values
+    # are ?-bound parameters in `params`.
+    sql = f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ?"  # nosec B608
     params.append(limit)
 
     db = get_db()
@@ -246,7 +252,9 @@ def audit_csv():
     from datetime import datetime, timezone
 
     where, params = _audit_query(request.args)
-    sql = f"SELECT * FROM audit_log {where} ORDER BY id"
+    # nosec B608: same rationale as /api/audit — `where` is composed from
+    # the _AUDIT_FILTER_COLUMNS allowlist, values are ?-bound.
+    sql = f"SELECT * FROM audit_log {where} ORDER BY id"  # nosec B608
 
     db = get_db()
     rows = db.execute(sql, params).fetchall()

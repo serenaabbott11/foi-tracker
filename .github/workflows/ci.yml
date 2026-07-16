@@ -1,0 +1,60 @@
+# OPS-7: minimal CI — tests + security scan on every push and PR.
+#
+# What this does *not* do: deploy, build a container, push to a registry.
+# Those steps need a real cloud target and departmental approval — see
+# docs/DEPLOYMENT.md §"Not doing" and OPS-8 for the aspirational sketch.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          # Tests set their own SECRET_KEY via monkeypatch, but the module-
+          # level import in foi_tracker.app needs *something* to be set.
+          SECRET_KEY: ci-only-not-used-in-prod
+        run: python -m pytest -v
+
+  security:
+    name: bandit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install bandit
+        run: pip install bandit
+
+      # -ll = report medium severity and above only. The bank-holidays JSON
+      # loader is a pure file read, and the `sqlite3` CLI subprocess in
+      # backup.sh isn't Python — bandit's Python-only findings on this
+      # codebase should stay at zero.
+      - name: Run bandit
+        run: bandit -r foi_tracker/ scripts/ -ll

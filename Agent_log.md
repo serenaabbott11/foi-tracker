@@ -242,3 +242,23 @@ the brief (container *and* setup script) are shipped, per user decision.
   - Unit: `python -m pytest` → 85/85 green (73 previous + 12 new).
   - The two-step fix: initial run flagged that the per-request endpoint didn't `SELECT entity_id` (KeyError in the test); the CSV special-character test was doing a naive substring lookup on a JSON-escaped string (`\"`). Fixed by selecting the extra columns and by json-parsing the CSV cell before comparison.
 - **Trajectory notes:** one iteration. Endpoints landed clean; test failures diagnosed and fixed in one pass each.
+
+### OPS-7 — minimal CI (GitHub Actions)
+
+- **Files:**
+  - `.github/workflows/ci.yml` — new. Two jobs on every push and every PR to main:
+    - `test` — checkout, setup Python 3.12 with pip cache, `pip install -r requirements.txt`, `python -m pytest -v`. Passes a placeholder `SECRET_KEY` env because `foi_tracker.app` refuses to import without one (tests set their own via monkeypatch, but the module-level guard fires at import time regardless).
+    - `security` — same Python setup, `pip install bandit`, `bandit -r foi_tracker/ scripts/ -ll`. `-ll` reports medium+ severity only.
+  - `foi_tracker/app.py` — added three `# nosec B608` comments with a written rationale on the three f-string SQL sites:
+    - `list_requests` (Serena's search — `WHERE {where}` where `where` is composed from `SEARCHABLE_COLUMNS`, a hardcoded tuple);
+    - `audit_index` and `audit_csv` (both use `_audit_query()`, which composes `WHERE` only from `_AUDIT_FILTER_COLUMNS.values()` — hardcoded allowlist). All user values go through `?` binds.
+- **Why:** `plan.md` OPS-7. Cheap now that pytest works. Every push proves tests pass and no obvious CWEs.
+- **Design choices:**
+  - **No deploy step.** Deploying to a real target needs cloud approvals we don't have (see `docs/DEPLOYMENT.md` §"Not doing" and OPS-8's aspirational sketches).
+  - **`bandit -ll`** filters to medium+ severity. Low-severity lint (e.g. `assert` in tests) is noise for a hackathon repo.
+  - **Suppressed with rationale, not silenced globally.** Three specific `# nosec B608` comments with a written justification, so reviewers can verify. Zero unsuppressed findings.
+- **Verification:**
+  - Local: `bandit -r foi_tracker/ scripts/ -ll` → `No issues identified.` (3 skipped via `#nosec`).
+  - Unit: `python -m pytest` → 85/85 green.
+  - **CI itself not yet run** — the workflow lives in `.github/workflows/`; will fire on the next push to origin.
+- **Trajectory notes:** bandit initially flagged the three f-string SQL sites. All three are provably safe (allowlist composition + `?`-bound values), but bandit doesn't do taint analysis. Adding `# nosec B608` with a written comment is the accepted practice — reviewers can check the rationale is sound.
