@@ -6,6 +6,7 @@ from datetime import date, datetime
 
 from flask import Flask, jsonify, render_template, request
 
+from foi_tracker.config import DB_PATH
 from foi_tracker.deadlines import calculate_deadline
 
 app = Flask(__name__)
@@ -15,7 +16,7 @@ if not _secret:
     raise RuntimeError("SECRET_KEY environment variable must be set")
 app.secret_key = _secret
 
-DB = os.environ.get("FOI_DB", "foi.db")
+DB = str(DB_PATH)
 
 STATUSES = ["Received", "In progress", "Internal review", "Responded", "Overdue"]
 

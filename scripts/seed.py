@@ -13,9 +13,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from foi_tracker.config import DB_PATH, ensure_dirs
 from foi_tracker.deadlines import calculate_deadline
 
-DB_PATH = os.environ.get("FOI_DB", str(ROOT / "foi.db"))
+# The DB lives under data/ — create it if this is a fresh checkout.
+ensure_dirs()
+DB_PATH = str(DB_PATH)
 
 if os.path.exists(DB_PATH):
     os.remove(DB_PATH)
