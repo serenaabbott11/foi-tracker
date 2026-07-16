@@ -182,3 +182,24 @@ the brief (container *and* setup script) are shipped, per user decision.
   - Unit: `python -m pytest` → 68/68 green (59 previous + 9 new).
   - Manual smoke: not run — Docker isn't available on this machine and `install.sh` needs root on a Debian/Ubuntu host. Static validation covers what we can automate; end-to-end is a manual drill described in `docs/DEPLOYMENT.md`.
 - **Trajectory notes:** one-shot; no rework.
+
+### OPS-5 — structured logging
+
+- **Files:**
+  - `foi_tracker/logging_config.py` — new. `setup_logging(log_dir=..., log_level=...)` configures the `foi_tracker` logger. Always writes to stdout (container-friendly). If `LOG_DIR` is set, additionally writes to `<LOG_DIR>/app.log` under a `RotatingFileHandler` (10 MB × 5 files). Adds a `_RequestIDFilter` that pulls `g.request_id` from Flask when there's a request context, else `"-"`. `new_request_id()` returns an 8-char hex id used per HTTP request. `setup_logging` is idempotent (guards against re-import in tests).
+  - `foi_tracker/app.py` — calls `setup_logging(...)` at import time using `LOG_DIR` / `LOG_LEVEL` env vars. Adds a `before_request` handler that stamps `g.request_id = new_request_id()` on every request. Logs one startup message (`FOI Deadline Tracker starting, db=<path>`). `healthz()`'s DB failure path now `logger.warning`s with the exception detail.
+  - `tests/test_logging.py` — new, 5 tests. `new_request_id` returns short unique hex ids; `_RequestIDFilter` defaults to `"-"` outside a request; `setup_logging` is idempotent under repeated calls; the concrete format string produces the expected `<ts> LEVEL <logger> [<request_id>] <message>` shape; inside a Flask request context the filter picks up `g.request_id`.
+- **Why:** `plan.md` OPS-5. Separate from `audit_log` — this is *ops* logging (startup, errors, warnings). Auditors get audit_log; on-call gets `logging`. Per-request correlation id lets you tie together log lines from the same HTTP request across multiple modules once we log more.
+- **Design choices:**
+  - **`foi_tracker` logger, not root.** Root is left alone so unrelated libraries don't inherit our formatter. `propagate=False` on `foi_tracker` prevents duplicate lines if the root ever grows a handler.
+  - **stdout by default.** Twelve-factor / container-friendly. File handler only when `LOG_DIR` is set (which the systemd unit does; the Docker path doesn't need it).
+  - **UTC, Z-suffixed timestamps.** Same convention as `audit_log` — one time convention to reason about.
+  - **8-char request id.** Enough for a hackathon; 16-char if we start seeing collisions in prod.
+- **Verification:**
+  - Unit: `python -m pytest` → 73/73 green.
+  - Live smoke: `SECRET_KEY=smoke python run.py` produces the expected startup line:
+    ```
+    2026-07-15T16:30:52Z INFO foi_tracker.app [-] FOI Deadline Tracker starting, db=/.../data/foi.db
+    ```
+    The `[-]` is correct — startup happens outside a request context.
+- **Trajectory notes:** first live-smoke attempt showed only Werkzeug's dev-server output because a stale `python run.py` from an earlier DP-1 test was still holding port 5002 (that older process didn't have OPS-5's `setup_logging`). Killed it, restarted, saw the startup line — same stale-server pattern noted under DP-1. Worth wrapping smoke tests in a helper that kills any prior server on the port before starting.

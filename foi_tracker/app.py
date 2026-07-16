@@ -1,18 +1,26 @@
 # FOI Deadline Tracker — single-page app with a JSON API.
 
+import logging
 import os
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, g, jsonify, render_template, request
 
 from foi_tracker.audit import now_utc_iso, write_audit
 from foi_tracker.deadlines import calculate_deadline
+from foi_tracker.logging_config import new_request_id, setup_logging
 
 # Sentinel actor for requests made before HASEEB's login lands. AUD-3 will
 # replace this with `current_user.username` in a single place.
 _ACTOR_UNKNOWN = "unknown"
+
+setup_logging(
+    log_dir=os.environ.get("LOG_DIR"),
+    log_level=os.environ.get("LOG_LEVEL", "INFO"),
+)
+logger = logging.getLogger("foi_tracker.app")
 
 app = Flask(__name__)
 
@@ -34,11 +42,18 @@ STATUSES = ["Received", "In progress", "Internal review", "Responded", "Overdue"
 # hard-coded allowlist (never user input).
 SEARCHABLE_COLUMNS = ("ref", "requester", "subject", "received", "deadline", "status", "notes")
 
+logger.info("FOI Deadline Tracker starting, db=%s", DB)
+
 
 def get_db():
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@app.before_request
+def _assign_request_id():
+    g.request_id = new_request_id()
 
 
 @app.get("/")
@@ -63,8 +78,9 @@ def healthz():
         db = get_db()
         db.execute("SELECT 1").fetchone()
         db_ok = True
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
         db_ok = False
+        logger.warning("healthz DB check failed: %s", exc)
     status_code = 200 if db_ok else 503
     return jsonify({"ok": db_ok, "db": db_ok}), status_code
 
