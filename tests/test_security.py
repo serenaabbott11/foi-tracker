@@ -34,11 +34,21 @@ def client(monkeypatch):
         "'2026-01-01', '2026-01-29', 'Received', '')"
     )
     # AUD-1: endpoints write to audit_log; DP-1: endpoints write retention cols.
+    # Auth: endpoints now require a signed-in user.
+    from foi_tracker.audit import now_utc_iso
+    from foi_tracker.auth import hash_password
     from scripts.migrate_add_audit_log import apply as apply_audit_log
     from scripts.migrate_add_retention import apply as apply_retention
+    from scripts.migrate_add_users import apply as apply_users
 
     apply_audit_log(conn)
     apply_retention(conn)
+    apply_users(conn)
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("testuser", hash_password("testpass"), "caseworker", now_utc_iso()),
+    )
     conn.commit()
     conn.close()
 
@@ -48,7 +58,9 @@ def client(monkeypatch):
     from foi_tracker.app import app as flask_app
 
     flask_app.config["TESTING"] = True
-    yield flask_app.test_client()
+    tc = flask_app.test_client()
+    tc.post("/login", data={"username": "testuser", "password": "testpass"})
+    yield tc
 
     os.remove(path)
 

@@ -42,18 +42,19 @@ def test_setup_logging_is_idempotent():
 
 def test_log_format_produces_expected_shape():
     """Concrete rendering: the formatter output must contain ts, level, logger,
-    request_id in brackets, and the message — in that order."""
+    request_id + user in brackets, and the message — in that order."""
     formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT)
     record = logging.LogRecord(
         "foi_tracker.app", logging.INFO, __file__, 0,
         "hello world", (), None,
     )
     record.request_id = "abc12345"
+    record.user = "alice"
     line = formatter.format(record)
-    # e.g. "2026-07-15T12:00:00Z INFO foi_tracker.app [abc12345] hello world"
+    # e.g. "2026-07-16T12:00:00Z INFO foi_tracker.app [abc12345 alice] hello world"
     pattern = (
         r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z "
-        r"INFO foi_tracker\.app \[abc12345\] hello world$"
+        r"INFO foi_tracker\.app \[abc12345 alice\] hello world$"
     )
     assert re.match(pattern, line), line
 

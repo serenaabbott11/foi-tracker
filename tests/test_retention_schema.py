@@ -128,11 +128,20 @@ def client_and_db(monkeypatch):
     os.close(fd)
     _make_base_db(path)
 
+    from foi_tracker.audit import now_utc_iso
+    from foi_tracker.auth import hash_password
     from scripts.migrate_add_audit_log import apply as apply_audit_log
+    from scripts.migrate_add_users import apply as apply_users
 
     conn = sqlite3.connect(path)
     apply_audit_log(conn)
     apply_retention(conn)
+    apply_users(conn)
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("testuser", hash_password("testpass"), "caseworker", now_utc_iso()),
+    )
     conn.commit()
     conn.close()
 
@@ -142,7 +151,9 @@ def client_and_db(monkeypatch):
     from foi_tracker.app import app as flask_app
 
     flask_app.config["TESTING"] = True
-    yield flask_app.test_client(), path
+    tc = flask_app.test_client()
+    tc.post("/login", data={"username": "testuser", "password": "testpass"})
+    yield tc, path
     os.remove(path)
 
 

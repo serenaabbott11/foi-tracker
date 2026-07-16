@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- No <base href> — the browser uses the document directory (/proxy/5002/)
+       as the base, so relative URLs (api/audit, logout, .) resolve correctly. -->
+  <title>Audit Log — FOI Deadline Tracker</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #0b0c0c; }
+    h1 { border-bottom: 4px solid #1d70b8; padding-bottom: .3rem; margin: 0; }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .header-right { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .user { color: #505a5f; font-size: .9rem; }
+    .user strong { color: #0b0c0c; }
+    a.back { color: #1d70b8; font-size: .9rem; text-decoration: underline; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .9rem; }
+    th, td { border: 1px solid #b1b4b6; padding: .45rem .6rem; text-align: left; }
+    th { background: #f3f2f1; }
+    button { background: #00703c; color: #fff; border: 0; padding: .5rem 1rem; font-size: .9rem; cursor: pointer; }
+    button.secondary { background: #f3f2f1; color: #0b0c0c; border: 1px solid #b1b4b6; }
+    .filters { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; background: #f3f2f1; border: 1px solid #b1b4b6; }
+    .filters label { display: flex; flex-direction: column; font-size: .85rem; font-weight: bold; gap: .2rem; }
+    .filters input, .filters select { padding: .4rem .5rem; border: 2px solid #0b0c0c; font-size: .9rem; }
+    .filters input { width: 150px; }
+    .count { color: #505a5f; font-size: .9rem; margin-bottom: .5rem; }
+    .tag { display: inline-block; padding: 1px 7px; font-size: .8rem; border-radius: 2px; border: 1px solid; white-space: nowrap; }
+    .tag.login       { background: #e6f4ea; border-color: #a8d5b0; }
+    .tag.login_failed { background: #fbeaea; border-color: #f5b7b7; }
+    .tag.logout      { background: #f3f2f1; border-color: #b1b4b6; }
+    .tag.update      { background: #fff3e0; border-color: #f5c97a; }
+    .tag.create      { background: #e8f0fe; border-color: #b1c7f5; }
+    .tag.view        { background: #f3f2f1; border-color: #b1b4b6; }
+    .tag.backup, .tag.restore { background: #f0e6fe; border-color: #c5a8f5; }
+    .tag.erase_pii   { background: #fbeaea; border-color: #f5b7b7; }
+    .csv-btn { background: #1d70b8; color: #fff; border: 0; padding: .5rem 1rem; font-size: .9rem; cursor: pointer; text-decoration: none; display: inline-block; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>FOI Deadline Tracker</h1>
+      <a class="back" href=".">← Back to requests</a>
+    </div>
+    <div class="header-right">
+      <span class="user">Signed in as <strong>{{ current_user.username }}</strong></span>
+      <form method="post" action="logout" style="display:inline;">
+        <button type="submit" class="secondary">Log out</button>
+      </form>
+    </div>
+  </header>
+
+  <h2 style="margin-bottom:.5rem;">Audit Log</h2>
+  <p style="color:#505a5f; margin-top:0; font-size:.9rem;">
+    Every system event — logins, views, edits, exports, backups. Admin access only.
+  </p>
+
+  <div class="filters">
+    <label>Action
+      <select id="af-action">
+        <option value="">All</option>
+        <option>login</option>
+        <option>login_failed</option>
+        <option>logout</option>
+        <option>create</option>
+        <option>view</option>
+        <option>update</option>
+        <option>erase_pii</option>
+        <option>backup</option>
+        <option>restore</option>
+      </select>
+    </label>
+    <label>Actor
+      <input id="af-actor" type="text" placeholder="username">
+    </label>
+    <label>From (UTC date)
+      <input id="af-from" type="date">
+    </label>
+    <label>To (UTC date)
+      <input id="af-to" type="date">
+    </label>
+    <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+      <button id="af-apply">Apply</button>
+      <button id="af-reset" class="secondary">Reset</button>
+      <a id="af-csv" class="csv-btn" href="api/audit.csv">Download CSV</a>
+    </div>
+  </div>
+
+  <p class="count" id="audit-count"></p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>When (UTC)</th>
+        <th>Who</th>
+        <th>IP</th>
+        <th>Action</th>
+        <th>Entity</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody id="audit-rows"></tbody>
+  </table>
+
+  <script>
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+
+    function filterParams() {
+      const p = new URLSearchParams();
+      const action = document.getElementById("af-action").value;
+      const actor  = document.getElementById("af-actor").value.trim();
+      const from   = document.getElementById("af-from").value;
+      const to     = document.getElementById("af-to").value;
+      if (action) p.set("action", action);
+      if (actor)  p.set("actor",  actor);
+      if (from)   p.set("from",   from + "T00:00:00Z");
+      if (to)     p.set("to",     to   + "T23:59:59Z");
+      p.set("limit", "500");
+      return p;
+    }
+
+    async function loadAudit() {
+      const params = filterParams();
+      document.getElementById("af-csv").href = `api/audit.csv?${params}`;
+
+      const resp = await fetch(`api/audit?${params}`);
+      if (!resp.ok) {
+        document.getElementById("audit-rows").innerHTML =
+          `<tr><td colspan="6" style="color:#d4351c;padding:1rem;">Failed to load audit log (${resp.status}).</td></tr>`;
+        return;
+      }
+      const rows = await resp.json();
+      document.getElementById("audit-count").textContent =
+        `${rows.length} event${rows.length === 1 ? "" : "s"}`;
+
+      const tbody = document.getElementById("audit-rows");
+      tbody.innerHTML = "";
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#505a5f;padding:1.5rem;">No events match the filter.</td></tr>`;
+        return;
+      }
+
+      for (const r of rows) {
+        const entity = r.entity_id
+          ? `${esc(r.entity_type)} #${esc(String(r.entity_id))}`
+          : esc(r.entity_type || "");
+
+        let detail = "";
+        if (r.reason) {
+          detail = esc(r.reason);
+        } else if (r.after_json) {
+          try {
+            const after = JSON.parse(r.after_json);
+            detail = Object.entries(after)
+              .map(([k, v]) => `<strong>${esc(k)}</strong>: ${esc(String(v))}`)
+              .join(", ");
+          } catch (_) {
+            detail = esc(r.after_json);
+          }
+        }
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td style="white-space:nowrap;font-size:.82rem;">${esc(r.timestamp)}</td>
+          <td><strong>${esc(r.actor)}</strong></td>
+          <td style="font-size:.82rem;color:#505a5f;">${esc(r.actor_ip || "")}</td>
+          <td><span class="tag ${esc(r.action)}">${esc(r.action)}</span></td>
+          <td style="font-size:.85rem;">${entity}</td>
+          <td style="font-size:.82rem;color:#505a5f;max-width:300px;word-break:break-word;">${detail}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    document.getElementById("af-apply").addEventListener("click", loadAudit);
+    document.getElementById("af-reset").addEventListener("click", () => {
+      document.getElementById("af-action").value = "";
+      document.getElementById("af-actor").value  = "";
+      document.getElementById("af-from").value   = "";
+      document.getElementById("af-to").value     = "";
+      loadAudit();
+    });
+
+    loadAudit();
+  </script>
+</body>
+</html>

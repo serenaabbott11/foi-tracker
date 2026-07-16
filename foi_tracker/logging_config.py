@@ -20,28 +20,39 @@ from pathlib import Path
 from typing import Optional
 
 
-LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s"
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s [%(request_id)s %(user)s] %(message)s"
 LOG_DATEFMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 class _RequestIDFilter(logging.Filter):
-    """Add `request_id` to every LogRecord.
+    """Add `request_id` and `user` to every LogRecord.
 
-    Pulls it from Flask's `g.request_id` if we're in a request context,
+    Pulls both from Flask/Flask-Login when we're inside a request context,
     else falls back to '-'. Kept resilient — a logging call must never
     raise inside its own handler.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = "-"
+        record.user = "-"
         try:
             from flask import g, has_request_context
 
             if has_request_context():
                 record.request_id = getattr(g, "request_id", "-")
-            else:
-                record.request_id = "-"
+                try:
+                    from flask_login import current_user
+
+                    if current_user.is_authenticated:
+                        record.user = current_user.username
+                    else:
+                        record.user = "anonymous"
+                except Exception:
+                    # flask-login not wired, or user_loader failed. Fall through.
+                    pass
         except Exception:
-            record.request_id = "-"
+            # Something unusual — keep the defaults.
+            pass
         return True
 
 

@@ -4,17 +4,16 @@ import logging
 import os
 import sqlite3
 from datetime import date, datetime
+from functools import wraps
 from pathlib import Path
 
-from flask import Flask, Response, g, jsonify, render_template, request
+from flask import Flask, Response, g, jsonify, redirect, render_template, request, url_for
+from flask_login import current_user, login_required, login_user, logout_user
 
 from foi_tracker.audit import now_utc_iso, write_audit
+from foi_tracker.auth import authenticate, current_actor, init_login
 from foi_tracker.deadlines import calculate_deadline
 from foi_tracker.logging_config import new_request_id, setup_logging
-
-# Sentinel actor for requests made before HASEEB's login lands. AUD-3 will
-# replace this with `current_user.username` in a single place.
-_ACTOR_UNKNOWN = "unknown"
 
 setup_logging(
     log_dir=os.environ.get("LOG_DIR"),
@@ -28,6 +27,12 @@ _secret = os.environ.get("SECRET_KEY")
 if not _secret:
     raise RuntimeError("SECRET_KEY environment variable must be set")
 app.secret_key = _secret
+
+# Modest session-cookie hardening. Lax lets normal navigation carry the
+# cookie while blocking the classic cross-site POST flow. Full HTTPS-only
+# and CSRF tokens are left for a later hardening pass.
+app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
+app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
 
 # Default DB lives under <repo>/data/ so it does not sit next to source files
 # and won't be wiped by an accidental `python -m scripts.seed` without --force.
@@ -51,18 +56,43 @@ def get_db():
     return conn
 
 
+def admin_required(f):
+    """Decorator: requires login AND admin role. Returns 403 JSON for non-admins."""
+    @wraps(f)
+    @login_required
+    def decorated(*args, **kwargs):
+        if not current_user.is_admin:
+            return jsonify({"error": "admin access required"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+# Wire Flask-Login now that get_db exists. Registers the user_loader and the
+# unauthorized-handler that returns 401 JSON for /api/... and redirects
+# elsewhere to /login.
+init_login(app, get_db)
+
+
 @app.before_request
 def _assign_request_id():
     g.request_id = new_request_id()
 
 
 @app.get("/")
+@login_required
 def index():
     return render_template(
         "app.html",
         statuses=STATUSES,
         today=date.today().isoformat(),
+        is_admin=current_user.is_admin,
     )
+
+
+@app.get("/audit")
+@admin_required
+def audit_dashboard():
+    return render_template("audit.html")
 
 
 @app.get("/api/healthz")
@@ -86,6 +116,7 @@ def healthz():
 
 
 @app.get("/api/requests")
+@login_required
 def list_requests():
     q = request.args.get("q", "").strip()
     db = get_db()
@@ -105,6 +136,7 @@ def list_requests():
 
 
 @app.post("/api/requests")
+@login_required
 def create_request():
     data = request.get_json(silent=True) or request.form
     ref = data["ref"]
@@ -128,7 +160,7 @@ def create_request():
         action="create",
         entity_type="request",
         entity_id=new_id,
-        actor=_ACTOR_UNKNOWN,
+        actor=current_actor(),
         actor_ip=request.remote_addr,
         after={
             "ref": ref,
@@ -144,6 +176,7 @@ def create_request():
 
 
 @app.get("/api/requests/<int:req_id>")
+@login_required
 def get_request(req_id):
     db = get_db()
     row = db.execute(
@@ -157,7 +190,7 @@ def get_request(req_id):
         action="view",
         entity_type="request",
         entity_id=req_id,
-        actor=_ACTOR_UNKNOWN,
+        actor=current_actor(),
         actor_ip=request.remote_addr,
     )
     db.commit()
@@ -165,6 +198,7 @@ def get_request(req_id):
 
 
 @app.get("/api/requests/<int:req_id>/audit")
+@login_required
 def request_audit(req_id):
     """AUD-5: per-request audit history — the ICO auditor's core question."""
     db = get_db()
@@ -219,13 +253,9 @@ def _audit_query(args) -> tuple[str, list]:
 
 
 @app.get("/api/audit")
+@admin_required
 def audit_index():
-    """AUD-5: cross-request audit view.
-
-    TODO(AUD-3 / DP-4): once login + roles land, restrict this to
-    'admin' / 'foi_officer'. Today it is open — do not deploy to a
-    public network until then.
-    """
+    """AUD-5: cross-request audit view. Admin-only."""
     where, params = _audit_query(request.args)
     try:
         limit = min(int(request.args.get("limit", "200")), 1000)
@@ -244,9 +274,9 @@ def audit_index():
 
 
 @app.get("/api/audit.csv")
+@admin_required
 def audit_csv():
-    """AUD-5: CSV export for auditors. Same filtering as /api/audit."""
-    # TODO(AUD-3 / DP-4): admin-only once auth lands.
+    """AUD-5: CSV export for auditors. Same filtering as /api/audit. Admin-only."""
     import csv
     import io
     from datetime import datetime, timezone
@@ -283,6 +313,7 @@ def audit_csv():
 
 
 @app.post("/api/requests/<int:req_id>")
+@login_required
 def update_request(req_id):
     data = request.get_json(silent=True) or request.form
     status = data["status"]
@@ -312,10 +343,97 @@ def update_request(req_id):
         action="update",
         entity_type="request",
         entity_id=req_id,
-        actor=_ACTOR_UNKNOWN,
+        actor=current_actor(),
         actor_ip=request.remote_addr,
         before={"status": before_row["status"], "notes": before_row["notes"]},
         after={"status": status, "notes": notes},
     )
     db.commit()
     return jsonify({"ok": True})
+
+
+# -------- Authentication --------------------------------------------------
+#
+# Relative redirects only — the app runs behind a proxy prefix (e.g.
+# `/proxy/5002/`) in some environments, so absolute paths like `/login` route
+# to the wrong place. `redirect(".")` from `/login` resolves to the app root
+# regardless of prefix. See foi_tracker/CLAUDE.md rule on relative fetch URLs.
+
+
+@app.get("/login")
+def login():
+    if current_user.is_authenticated:
+        # Relative — from /login this resolves to the app root under any prefix.
+        return redirect(".")
+    return render_template("login.html", error=None)
+
+
+@app.post("/login")
+def login_post():
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    db = get_db()
+    try:
+        user = authenticate(db, username, password)
+        if user is None:
+            # Log the failed attempt. The attempted username goes in `reason`
+            # (truncated to guard against giant-payload log spam). We don't log
+            # the password.
+            write_audit(
+                db,
+                action="login_failed",
+                entity_type="user",
+                entity_id=None,
+                actor="anonymous",
+                actor_ip=request.remote_addr,
+                reason=f"attempted username: {username[:80]}",
+            )
+            db.commit()
+            logger.warning("failed login for '%s' from %s", username, request.remote_addr)
+            return (
+                render_template(
+                    "login.html",
+                    error="Username or password not recognised.",
+                ),
+                401,
+            )
+
+        login_user(user)
+        write_audit(
+            db,
+            action="login",
+            entity_type="user",
+            entity_id=user.id,
+            actor=user.username,
+            actor_ip=request.remote_addr,
+        )
+        db.commit()
+        logger.info("login: %s", user.username)
+        # Relative — from /login resolves to app root under any prefix.
+        return redirect(".")
+    finally:
+        db.close()
+
+
+@app.post("/logout")
+@login_required
+def logout():
+    username = current_user.username
+    user_id = current_user.id
+    db = get_db()
+    try:
+        write_audit(
+            db,
+            action="logout",
+            entity_type="user",
+            entity_id=user_id,
+            actor=username,
+            actor_ip=request.remote_addr,
+        )
+        db.commit()
+    finally:
+        db.close()
+    logout_user()
+    logger.info("logout: %s", username)
+    # Relative — from /logout resolves to /login (same directory, sibling path).
+    return redirect("login")

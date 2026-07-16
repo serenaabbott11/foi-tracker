@@ -18,11 +18,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from foi_tracker.auth import hash_password  # noqa: E402
+from foi_tracker.audit import now_utc_iso  # noqa: E402
 from foi_tracker.deadlines import calculate_deadline  # noqa: E402
 from scripts.migrate_add_audit_log import apply as apply_audit_log  # noqa: E402
 from scripts.migrate_add_retention import apply as apply_retention  # noqa: E402
+from scripts.migrate_add_users import apply as apply_users  # noqa: E402
 
 DEFAULT_DB_PATH = str(ROOT / "data" / "foi.db")
+
+# Demo users — clearly insecure passwords for hackathon / local dev only.
+# Real deployments create users via `python -m scripts.create_user`.
+DEMO_USERS = [
+    ("admin",      "adminpass", "admin"),
+    ("SerenaA",    "password",  "caseworker"),
+    ("Haseeb",     "password",  "caseworker"),
+    ("SatyavratK", "password",  "caseworker"),
+]
 
 SAMPLE = [
     ("FOI-2026-0141", "J. Whitfield", "Pothole repair spend by borough, 2024-2026", 38, "Responded"),
@@ -81,6 +93,18 @@ def seed(db_path: str, force: bool = False) -> None:
         )
     apply_audit_log(conn)
     apply_retention(conn)
+    apply_users(conn)
+
+    # Seed demo users. INSERT OR IGNORE keeps `python -m scripts.seed --force`
+    # (which drops the DB entirely) and manual migrations both idempotent.
+    now = now_utc_iso()
+    for username, password, role in DEMO_USERS:
+        conn.execute(
+            "INSERT OR IGNORE INTO users (username, password_hash, role, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (username, hash_password(password), role, now),
+        )
+
     conn.commit()
     conn.close()
 
@@ -99,7 +123,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     seed(args.db, force=args.force)
-    print(f"Seeded {args.db} with {len(SAMPLE)} requests")
+    print(
+        f"Seeded {args.db} with {len(SAMPLE)} requests and "
+        f"{len(DEMO_USERS)} demo users."
+    )
+    print("Demo credentials (development only): " +
+          ", ".join(f"{u}/{p}" for u, p, _ in DEMO_USERS))
     return 0
 
 

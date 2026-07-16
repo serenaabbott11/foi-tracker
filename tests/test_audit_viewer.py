@@ -52,16 +52,16 @@ def test_per_request_audit_carries_before_after_diff(client):
     assert before["status"] != "Responded"
 
 
-# --- cross-request /api/audit -------------------------------------------------
+# --- cross-request /api/audit — admin only ------------------------------------
 
 
-def test_audit_index_returns_recent_rows(client):
+def test_audit_index_returns_recent_rows(admin_client):
     # Generate a few rows.
-    client.get("/api/requests/1")
-    client.get("/api/requests/2")
-    client.post("/api/requests/1", json={"status": "In progress", "notes": ""})
+    admin_client.get("/api/requests/1")
+    admin_client.get("/api/requests/2")
+    admin_client.post("/api/requests/1", json={"status": "In progress", "notes": ""})
 
-    resp = client.get("/api/audit")
+    resp = admin_client.get("/api/audit")
     assert resp.status_code == 200
     rows = resp.get_json()
     assert len(rows) >= 3
@@ -70,33 +70,33 @@ def test_audit_index_returns_recent_rows(client):
     assert ids == sorted(ids, reverse=True)
 
 
-def test_audit_index_filter_by_action(client):
-    client.get("/api/requests/1")
-    client.get("/api/requests/2")
-    client.post("/api/requests/1", json={"status": "In progress", "notes": ""})
+def test_audit_index_filter_by_action(admin_client):
+    admin_client.get("/api/requests/1")
+    admin_client.get("/api/requests/2")
+    admin_client.post("/api/requests/1", json={"status": "In progress", "notes": ""})
 
-    resp = client.get("/api/audit?action=view")
+    resp = admin_client.get("/api/audit?action=view")
     rows = resp.get_json()
     assert rows, "no view rows"
     assert all(r["action"] == "view" for r in rows)
 
 
-def test_audit_index_filter_by_entity(client):
-    client.get("/api/requests/1")
-    client.get("/api/requests/2")
+def test_audit_index_filter_by_entity(admin_client):
+    admin_client.get("/api/requests/1")
+    admin_client.get("/api/requests/2")
 
-    resp = client.get("/api/audit?entity_type=request&entity_id=2")
+    resp = admin_client.get("/api/audit?entity_type=request&entity_id=2")
     rows = resp.get_json()
     assert rows, "no rows for request 2"
     assert all(r["entity_id"] == "2" for r in rows)
 
 
-def test_audit_index_limit_is_capped(client):
+def test_audit_index_limit_is_capped(admin_client):
     """Prevent an accidental DoS via limit=10000000."""
     for _ in range(5):
-        client.get("/api/requests/1")
+        admin_client.get("/api/requests/1")
 
-    resp = client.get("/api/audit?limit=999999999")
+    resp = admin_client.get("/api/audit?limit=999999999")
     assert resp.status_code == 200
     rows = resp.get_json()
     # The endpoint clamps to 1000. Not asserting exact length here — just
@@ -104,20 +104,26 @@ def test_audit_index_limit_is_capped(client):
     assert len(rows) <= 1000
 
 
-def test_audit_index_ignores_bogus_limit(client):
-    client.get("/api/requests/1")
-    resp = client.get("/api/audit?limit=notanumber")
+def test_audit_index_ignores_bogus_limit(admin_client):
+    admin_client.get("/api/requests/1")
+    resp = admin_client.get("/api/audit?limit=notanumber")
     assert resp.status_code == 200
 
 
-# --- CSV export ---------------------------------------------------------------
+def test_audit_index_non_admin_gets_403(client):
+    """Caseworkers must not be able to reach the cross-request audit view."""
+    resp = client.get("/api/audit")
+    assert resp.status_code == 403
 
 
-def test_audit_csv_returns_csv_shape(client):
-    client.get("/api/requests/1")
-    client.post("/api/requests/1", json={"status": "In progress", "notes": "abc"})
+# --- CSV export — admin only --------------------------------------------------
 
-    resp = client.get("/api/audit.csv")
+
+def test_audit_csv_returns_csv_shape(admin_client):
+    admin_client.get("/api/requests/1")
+    admin_client.post("/api/requests/1", json={"status": "In progress", "notes": "abc"})
+
+    resp = admin_client.get("/api/audit.csv")
     assert resp.status_code == 200
     assert resp.mimetype == "text/csv"
     assert "attachment" in resp.headers.get("Content-Disposition", "")
@@ -132,12 +138,12 @@ def test_audit_csv_returns_csv_shape(client):
     assert len(body) >= 2  # at least the view + update we just made
 
 
-def test_audit_csv_filter_applies(client):
-    client.get("/api/requests/1")
-    client.get("/api/requests/2")
-    client.post("/api/requests/1", json={"status": "In progress", "notes": ""})
+def test_audit_csv_filter_applies(admin_client):
+    admin_client.get("/api/requests/1")
+    admin_client.get("/api/requests/2")
+    admin_client.post("/api/requests/1", json={"status": "In progress", "notes": ""})
 
-    resp = client.get("/api/audit.csv?action=view")
+    resp = admin_client.get("/api/audit.csv?action=view")
     reader = csv.reader(io.StringIO(resp.get_data(as_text=True)))
     header = next(reader)
     action_idx = header.index("action")
@@ -145,19 +151,19 @@ def test_audit_csv_filter_applies(client):
         assert row[action_idx] == "view"
 
 
-def test_audit_csv_handles_commas_and_quotes_in_data(client):
+def test_audit_csv_handles_commas_and_quotes_in_data(admin_client):
     """csv.writer must correctly quote fields containing our separator + quotes.
 
     JSON encodes internal `"` as `\\"`, so we check the round-trip by parsing
     the after_json cell and comparing the decoded string, not by substring.
     """
     payload_notes = 'a, comma and a "quote"'
-    client.post(
+    admin_client.post(
         "/api/requests/1",
         json={"status": "In progress", "notes": payload_notes},
     )
 
-    resp = client.get("/api/audit.csv?action=update")
+    resp = admin_client.get("/api/audit.csv?action=update")
     text = resp.get_data(as_text=True)
     reader = csv.reader(io.StringIO(text))
     header = next(reader)
@@ -175,3 +181,9 @@ def test_audit_csv_handles_commas_and_quotes_in_data(client):
             found = True
             break
     assert found, "CSV round-trip did not preserve the special-character payload"
+
+
+def test_audit_csv_non_admin_gets_403(client):
+    """Caseworkers must not be able to download the audit CSV."""
+    resp = client.get("/api/audit.csv")
+    assert resp.status_code == 403

@@ -7,7 +7,10 @@
   <style>
     body { font-family: Arial, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #0b0c0c; }
     h1 { border-bottom: 4px solid #1d70b8; padding-bottom: .3rem; margin: 0; }
-    header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+    .header-right { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .user { color: #505a5f; font-size: .9rem; }
+    .user strong { color: #0b0c0c; }
     table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
     th, td { border: 1px solid #b1b4b6; padding: .5rem .6rem; text-align: left; }
     th { background: #f3f2f1; }
@@ -31,7 +34,15 @@
 <body>
   <header>
     <h1>FOI Deadline Tracker</h1>
-    <button id="new-btn">+ New request</button>
+    <div class="header-right">
+      <span class="user">Signed in as <strong>{{ current_user.username }}</strong></span>
+      {% if is_admin %}<a href="audit" style="background:#f3f2f1;color:#0b0c0c;border:1px solid #b1b4b6;padding:.6rem 1.2rem;font-size:1rem;text-decoration:none;">Audit Log</a>{% endif %}
+      <button id="new-btn">+ New request</button>
+      <!-- Relative action so the logout POST works under any proxy prefix. -->
+      <form method="post" action="logout" style="display:inline;">
+        <button type="submit" class="secondary">Log out</button>
+      </form>
+    </div>
   </header>
 
   <div class="toolbar">
@@ -88,8 +99,7 @@
   <div id="history-panel" class="panel hidden">
     <h2>History — request <span id="h-ref"></span></h2>
     <p style="color:#505a5f; font-size:.9rem; margin-top:-.5rem;">
-      Every view and every change of this record. Auditor-ready — the actor
-      column will show usernames once login lands.
+      Every view and every change of this record.
     </p>
     <table>
       <thead>
@@ -106,6 +116,7 @@
       <button class="secondary" onclick="hidePanels()">Close</button>
     </div>
   </div>
+
 
   <script>
     const TODAY = "{{ today }}";
