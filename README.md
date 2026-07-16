@@ -63,8 +63,35 @@ For scheduled backups, add a cron entry, e.g. hourly:
 0 * * * * cd /path/to/foi-tracker && python -m scripts.backup >> data/backups/backup.log 2>&1
 ```
 
+## Troubleshooting
+
+**`RuntimeError: SECRET_KEY environment variable must be set`**
+Export a key before starting:
+```bash
+export SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
+```
+
+**`sqlite3.OperationalError: no such table: audit_log`** (or `no such column: retention_until`)
+Your DB was created before the migrations. Fix in one of two ways:
+
+```bash
+# A) Wipe and re-seed (loses data — fine for dev)
+python -m scripts.seed --force
+
+# B) Keep data, just add the missing tables/columns
+python -c "import sqlite3; \
+from scripts.migrate_add_audit_log import apply as a1; \
+from scripts.migrate_add_retention import apply as a2; \
+c = sqlite3.connect('data/foi.db'); a1(c); a2(c); c.commit()"
+```
+
+**`seed.py` refuses to run** — the safety guard blocks overwriting an existing DB. Use `--force` if that's what you want.
+
+**Port 5002 already in use** — another `python run.py` is still running: `pkill -f 'python run.py'`.
+
 ## Notes
 
 - `SECRET_KEY` is **required** — the app refuses to start without it.
-- Deadlines currently exclude weekends only; bank holidays are being added (see [`docs/TEAM-PLAN.txt`](docs/TEAM-PLAN.txt)).
+- Deadlines skip UK bank holidays across all four nations (FOI Act 2000 s.10(6)). Source: `foi_tracker/bank-holidays.json`.
 - Changes are logged in [`docs/AI_LOG.md`](docs/AI_LOG.md).
+- Full deployment story: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
