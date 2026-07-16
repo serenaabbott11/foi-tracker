@@ -1,0 +1,80 @@
+FOI Deadline Tracker — Gap analysis against the hackathon brief
+================================================================
+Date: 2026-07-16
+
+Most of the brief's "directions you could take" are already covered:
+the deadline correctness fix, SQL injection close, secrets/debug hygiene,
+containerisation (Dockerfile + docker-compose.yml + deploy/), backup +
+restore + restore drill, DPIA / privacy notice / retention docs, and a
+CI workflow. Solid starting position.
+
+What's genuinely missing, in audit-risk order:
+
+
+1. Authentication / per-user accounts — BLOCKING
+------------------------------------------------
+Grep of foi_tracker/app.py shows literal comments like
+"Sentinel actor for requests made before HASEEB's login lands" and
+"TODO(AUD-3 / DP-4): once login + roles land, restrict this to…".
+No login exists yet. The brief specifically flags this because two
+more directorates are coming — real users with real accounts — and
+nothing else in the audit trail works properly without it.
+
+
+2. Audit log can't attribute changes — downstream of #1
+-------------------------------------------------------
+The audit_log schema is excellent (actor, actor_ip, action, entity,
+before/after JSON, immutability trigger). But the actor field is a
+hard-coded sentinel until login lands. Auditor question: "who
+changed this record?" → today the answer is "a caseworker, we can't
+tell which one."
+
+
+3. No access-event auditing
+---------------------------
+The log records mutations only. Brief's question 3 asks "who has
+accessed this requester's record?" — reads aren't logged. Even
+after login lands, this remains a gap.
+
+
+4. No multi-team data separation
+--------------------------------
+One shared requests table, no team/directorate column, no per-team
+filtering. Directorate A onboarding = Directorate A can see all of
+central FOI's requests. Personal data (requester names/addresses)
+crosses team boundaries with zero enforcement.
+
+
+5. No right-to-erasure workflow
+-------------------------------
+RETENTION-POLICY.md and migrate_add_retention.py exist, so the
+retention schedule is there. But a requester asking "delete my data"
+has no path — no endpoint, no officer workflow. UK GDPR Art. 17
+obligation.
+
+
+6. Deadline edge case: "request received on a bank holiday"
+-----------------------------------------------------------
+The brief lists this as one of the four correctness scenarios.
+Current tests cover Easter, Christmas, Summer BH, Maundy Thursday,
+Scotland 2 Jan — but not receipt-date-is-a-holiday. Likely trivial
+(the code counts from the day after) but there's no test to prove it.
+
+
+7. Features that operationalise — all absent
+---------------------------------------------
+- Email alerts as deadlines approach (grep for smtp/email returns
+  only JS alert() calls)
+- Exceptions report for the FOI officer's Monday meeting
+- Aggregated stats for the annual FOI return
+
+
+Recommended next slice
+======================
+If you've got one more chunk of time, #1 + #2 + #4 as a bundle —
+login unblocks proper audit attribution, and doing team separation
+at the same time is cheap because the schema change and the auth
+layer touch the same code. That single push closes the biggest audit
+exposure. #5 (erasure) is quick after #4. The operationalise features
+(#7) are polish — powerful for the demo, but the auditor won't fail
+you for missing them.
