@@ -8,4 +8,6 @@ __pycache__/
 .venv/
 venv/
 .env
-CLAUDE-tee.MD
+plan.md
+backups/
+data/foi.db.pre-restore-*

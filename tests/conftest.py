@@ -47,6 +47,12 @@ def client(monkeypatch):
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         SAMPLE_ROWS,
     )
+    # AUD-1 / DP-1: endpoints write to audit_log and expect retention columns.
+    from scripts.migrate_add_audit_log import apply as apply_audit_log
+    from scripts.migrate_add_retention import apply as apply_retention
+
+    apply_audit_log(conn)
+    apply_retention(conn)
     conn.commit()
     conn.close()
 
