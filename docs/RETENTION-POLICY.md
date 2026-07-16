@@ -29,7 +29,7 @@ The `audit_log` table additionally records `actor` (username, currently `'unknow
 | `requests` row **PII** (`requester`, `notes`) | **3 years** from `responded_at` | Balance between operational usefulness and data minimisation | DP-3 sweeper (planned) |
 | `audit_log` full row | **6 years** from `timestamp` | Matches typical UK gov audit retention | DP-3 (future extension) |
 | `audit_log` `before_json`/`after_json` payload | **6 years** from `timestamp` | Content of the diff is redacted after 6 years; row is retained (who/when/action/entity_id) for statistical purposes | DP-3 (future extension) |
-| Backup files (`backups/foi-*.db.gz`) | Last 14 daily kept automatically; weekly promotions kept 8 weeks (manual) | See `docs/RESTORE-DRILL.md` §5 | `scripts/backup.sh` (auto) + human (weeklies) |
+| Backup files (`data/backups/foi-*.db`) | Newest `FOI_BACKUP_KEEP` (default 14) kept automatically; older files pruned each run | See `docs/RESTORE-DRILL.md` | `scripts/backup.py` (auto) |
 | `data/foi.db.pre-restore-*` safety copies | 30 days | Manual cleanup | Operator |
 
 **Numbers above are the proposed policy, not current behaviour.** Today only backup retention is fully automated (last 14 kept). Requests PII scrubbing (DP-3 sweeper) and audit_log ageing are not yet implemented; both are on `plan.md` and require the `retention_until` column populated (already provisioned in DP-1).

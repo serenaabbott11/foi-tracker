@@ -25,14 +25,6 @@ def test_install_sh_parses():
     _shell_syntax_check(REPO_ROOT / "scripts" / "install.sh")
 
 
-def test_backup_sh_parses():
-    _shell_syntax_check(REPO_ROOT / "scripts" / "backup.sh")
-
-
-def test_restore_sh_parses():
-    _shell_syntax_check(REPO_ROOT / "scripts" / "restore.sh")
-
-
 def test_dockerfile_has_healthcheck_and_non_root_user():
     text = (REPO_ROOT / "Dockerfile").read_text()
     assert "HEALTHCHECK" in text

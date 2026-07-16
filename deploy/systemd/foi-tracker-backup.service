@@ -8,7 +8,7 @@ User=foi-tracker
 Group=foi-tracker
 WorkingDirectory=/opt/foi-tracker
 EnvironmentFile=/etc/foi-tracker/env
-ExecStart=/opt/foi-tracker/scripts/backup.sh
+ExecStart=/usr/bin/python3 -m scripts.backup
 
 # Hardening
 NoNewPrivileges=true

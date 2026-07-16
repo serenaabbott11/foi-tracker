@@ -1,4 +1,9 @@
 """Security tests: SQL injection is closed and unsafe defaults are gone."""
+import os
+import sqlite3
+import sys
+import tempfile
+
 import pytest
 
 

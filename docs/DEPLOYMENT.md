@@ -28,23 +28,23 @@ docker compose exec app python -m scripts.seed --force
 curl http://localhost:5002/api/healthz    # -> {"ok":true,"db":true}
 ```
 
-**Manual backup:** `docker compose exec app scripts/backup.sh` — writes into the `foi-backups` volume. To pull backups out to the host:
+**Manual backup:** `docker compose exec app python -m scripts.backup` — writes into `data/backups/`. To pull backups out to the host:
 
 ```bash
-docker compose cp app:/backups ./backups-export/
+docker compose cp app:/app/data/backups ./backups-export/
 ```
 
-**Restore:** copy a `.db.gz` back into the container, then run `restore.sh`:
+**Restore:** copy a `.db` back into the container, then run the restore script:
 
 ```bash
-docker compose cp ./backups-export/foi-20260715-020000Z.db.gz app:/backups/
-docker compose exec app scripts/restore.sh /backups/foi-20260715-020000Z.db.gz
+docker compose cp ./backups-export/foi-20260715-020000.db app:/app/data/backups/
+docker compose exec app python -m scripts.restore /app/data/backups/foi-20260715-020000.db
 ```
 
 **Automating backups under Docker:** the `foi-tracker-backup.timer` systemd unit is not applicable here. Use a host-side cron entry:
 
 ```cron
-0 2 * * *  docker compose --project-directory /opt/foi-tracker exec -T app scripts/backup.sh
+0 2 * * *  docker compose --project-directory /opt/foi-tracker exec -T app python -m scripts.backup
 ```
 
 ---
