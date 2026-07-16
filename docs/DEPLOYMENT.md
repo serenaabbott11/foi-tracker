@@ -7,8 +7,6 @@ Two supported paths, matching the brief:
 
 Both use the same code, the same env vars, and the same backup / restore scripts. Both run under a non-root user and expose `/api/healthz` for external monitoring.
 
-Kubernetes and Terraform artefacts live under `deploy/k8s/` and `deploy/terraform/` when OPS-8 lands — those are *demonstrative*, not deployed.
-
 ---
 
 ## Path A — Docker
@@ -101,5 +99,6 @@ The restore drill is documented separately in [`docs/RESTORE-DRILL.md`](RESTORE-
 
 ## Not doing (and why)
 
-- **No cloud deployment** — no budget, no clearance to move the PII off-premise, no DPIA update. Aspirational Terraform / K8s artefacts will land under `deploy/` when OPS-8 lands (labelled "not applied, not deployed").
+- **No cloud deployment** — no budget, no clearance to move the PII off-premise, no DPIA update.
 - **No HA / clustering** — 6–20 users; one node with a tested restore beats two nodes with untested backups.
+- **No Kubernetes / Terraform** — the app is a single-VM systemd deployment. SQLite is single-writer, so multi-replica orchestration would be theatre without a database swap.
