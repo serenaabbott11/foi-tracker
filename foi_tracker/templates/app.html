@@ -12,6 +12,8 @@
     th, td { border: 1px solid #b1b4b6; padding: .5rem .6rem; text-align: left; }
     th { background: #f3f2f1; }
     tr[data-id]:hover { background: #f6faff; cursor: pointer; }
+    tr[data-id].selected { background: #d2e2f1; box-shadow: inset 4px 0 0 #1d70b8; }
+    tr[data-id].selected:hover { background: #cfdeee; }
     .overdue { background: #fbeaea; }
     .status { display: inline-block; background: #f3f2f1; border: 1px solid #b1b4b6; padding: 1px 8px; font-size: .85rem; }
     label { display: block; margin: .8rem 0 .2rem; font-weight: bold; }
@@ -137,7 +139,11 @@
           <td>${esc(r.deadline)}</td>
           <td><span class="status">${esc(r.status)}</span></td>
         `;
-        tr.addEventListener("click", () => showDetail(r.id));
+        tr.addEventListener("click", () => {
+          document.querySelectorAll("tr[data-id].selected").forEach(el => el.classList.remove("selected"));
+          tr.classList.add("selected");
+          showDetail(r.id);
+        });
         tbody.appendChild(tr);
       }
       const label = rows.length === 1 ? "1 match" : `${rows.length} matches`;
